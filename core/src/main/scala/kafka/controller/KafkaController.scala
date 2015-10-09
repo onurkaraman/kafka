@@ -41,7 +41,6 @@ import org.I0Itec.zkclient.{IZkChildListener, IZkDataListener, IZkStateListener,
 import org.I0Itec.zkclient.exception.{ZkNodeExistsException, ZkNoNodeException}
 import java.util.concurrent.locks.ReentrantLock
 import kafka.server._
-import kafka.common.TopicAndPartition
 
 class ControllerContext(val zkClient: ZkClient,
                         val zkConnection: ZkConnection,
@@ -57,6 +56,7 @@ class ControllerContext(val zkClient: ZkClient,
   var partitionLeadershipInfo: mutable.Map[TopicAndPartition, LeaderIsrAndControllerEpoch] = mutable.Map.empty
   val partitionsBeingReassigned: mutable.Map[TopicAndPartition, ReassignedPartitionsContext] = new mutable.HashMap
   val partitionsUndergoingPreferredReplicaElection: mutable.Set[TopicAndPartition] = new mutable.HashSet
+  var selfHealingTasks: mutable.Set[SelfHealingTask] = new mutable.HashSet
 
   private var liveBrokersUnderlying: Set[Broker] = Set.empty
   private var liveBrokerIdsUnderlying: Set[Int] = Set.empty
@@ -166,6 +166,7 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, zkConnection
   // have a separate scheduler for the controller to be able to start and stop independently of the
   // kafka server
   private val autoRebalanceScheduler = new KafkaScheduler(1)
+  private val selfHealingScheduler = new KafkaScheduler(1)
   var deleteTopicManager: TopicDeletionManager = null
   val offlinePartitionSelector = new OfflinePartitionLeaderSelector(controllerContext, config)
   private val reassignedPartitionLeaderSelector = new ReassignedPartitionLeaderSelector(controllerContext)
@@ -345,6 +346,11 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, zkConnection
         autoRebalanceScheduler.schedule("partition-rebalance-thread", checkAndTriggerPartitionRebalance,
           5, config.leaderImbalanceCheckIntervalSeconds.toLong, TimeUnit.SECONDS)
       }
+      if (config.selfHealingEnable) {
+        info("starting the self healing scheduler")
+        selfHealingScheduler.startup()
+        selfHealingScheduler.schedule("self-healing-thread", checkAndHealReplicas, 5, 10, TimeUnit.SECONDS)
+      }
       deleteTopicManager.start()
     }
     else
@@ -370,6 +376,9 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, zkConnection
     if (config.autoLeaderRebalanceEnable)
       autoRebalanceScheduler.shutdown()
 
+    // shutdown self healing scheduler
+    if (config.selfHealingEnable)
+      selfHealingScheduler.shutdown()
     inLock(controllerContext.controllerLock) {
       // de-register partition ISR listener for on-going partition reassignment task
       deregisterReassignedPartitionsIsrChangeListeners()
@@ -742,6 +751,7 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, zkConnection
     controllerContext.partitionReplicaAssignment = ZkUtils.getReplicaAssignmentForTopics(zkClient, controllerContext.allTopics.toSeq)
     controllerContext.partitionLeadershipInfo = new mutable.HashMap[TopicAndPartition, LeaderIsrAndControllerEpoch]
     controllerContext.shuttingDownBrokerIds = mutable.Set.empty[Int]
+    controllerContext.selfHealingTasks = ZkUtils.getSelfHealingTasks(zkClient)
     // update the leader and isr cache for all existing partitions from Zookeeper
     updateLeaderAndIsrCache()
     // start the channel manager
@@ -1179,6 +1189,70 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, zkConnection
     }
   }
 
+  private def checkAndHealReplicas(): Unit = {
+    if (!isActive()) return
+    info("checking need to heal replicas")
+    inLock(controllerContext.controllerLock) {
+      val allReplicas = controllerContext.partitionReplicaAssignment.flatMap { case (tp, replicaIds) =>
+        replicaIds.map(replicaId => PartitionAndReplica(tp.topic, tp.partition, replicaId))
+      }.toSet
+      val eligibleReplicas = allReplicas.filter(replica =>
+        !controllerContext.partitionsBeingReassigned.contains(TopicAndPartition(replica.topic, replica.partition)) &&
+        !controllerContext.selfHealingTasks.exists(task => task.replicas.contains(replica)))
+      val unhealthyReplicas = eligibleReplicas -- controllerContext.allLiveReplicas()
+      val now = System.currentTimeMillis()
+      val selfHealingTasks = makeSelfHealingTasks(unhealthyReplicas, now)
+      selfHealingTasks.foreach { selfHealingTask =>
+        val path = ZkUtils.addSelfHealingTask(zkClient, selfHealingTask.replicas, selfHealingTask.timestamp)
+        selfHealingTask.zkPath = path
+        controllerContext.selfHealingTasks += selfHealingTask
+      }
+      info("self healing tasks: " + controllerContext.selfHealingTasks)
+
+      val commencedTasks = new mutable.HashSet[SelfHealingTask]
+      controllerContext.selfHealingTasks
+      .filter(_.timestamp < now)
+      .foreach { selfHealingTask =>
+        info("processing self healing task: " + selfHealingTask)
+        val partitions = solveTask(selfHealingTask)
+        info("solved self healing task: " + selfHealingTask + " with assignment: " + partitions)
+        // add a znode to the reassign_partitions path
+        try {
+          val jsonReassignmentData = ZkUtils.getPartitionReassignmentZkData(partitions)
+          ZkUtils.createPersistentPath(zkClient, ZkUtils.ReassignPartitionsPath, jsonReassignmentData)
+          commencedTasks += selfHealingTask
+        } catch {
+          case ze: ZkNodeExistsException => commencedTasks += selfHealingTask
+          case e: Throwable => // do nothing
+        }
+
+        // remove znode from the /healing path
+        CoreUtils.swallow {
+          ZkUtils.deletePath(zkClient, selfHealingTask.zkPath)
+        }
+      }
+      commencedTasks.foreach(controllerContext.selfHealingTasks -= _)
+    }
+
+    def makeSelfHealingTasks(replicas: Set[PartitionAndReplica], now: Long): Set[SelfHealingTask] = {
+      replicas.map { replica =>
+        val timestamp = now + 60 * 1000 // TODO: add configs for better timestamp logic
+        SelfHealingTask(Set(replica), timestamp, null)
+      }
+    }
+
+    def solveTask(selfHealingTask: SelfHealingTask): Map[TopicAndPartition, Seq[Int]] = {
+      selfHealingTask.replicas.map { unhealthyReplica =>
+        val tp = TopicAndPartition(unhealthyReplica.topic, unhealthyReplica.partition)
+        val replicas = controllerContext.partitionReplicaAssignment(tp)
+        val reassigned = replicas.map(replica => if (replica == unhealthyReplica.replica) leastLoadedLiveBroker else replica)
+        (tp, reassigned)
+      }.toMap
+    }
+
+    def leastLoadedLiveBroker = controllerContext.liveBrokerIds.minBy(brokerId => controllerContext.replicasOnBrokers(Set(brokerId)).size)
+  }
+
   private def checkAndTriggerPartitionRebalance(): Unit = {
     if (isActive()) {
       trace("checking need to trigger partition rebalance")
@@ -1469,3 +1543,5 @@ object ControllerStats extends KafkaMetricsGroup {
   val uncleanLeaderElectionRate = newMeter("UncleanLeaderElectionsPerSec", "elections", TimeUnit.SECONDS)
   val leaderElectionTimer = new KafkaTimer(newTimer("LeaderElectionRateAndTimeMs", TimeUnit.MILLISECONDS, TimeUnit.SECONDS))
 }
+
+case class SelfHealingTask(replicas: Set[PartitionAndReplica], timestamp: Long, var zkPath: String)

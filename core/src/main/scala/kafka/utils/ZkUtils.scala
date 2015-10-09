@@ -32,9 +32,7 @@ import kafka.api.LeaderAndIsr
 import org.apache.zookeeper.data.Stat
 import kafka.admin._
 import kafka.common.{KafkaException, NoEpochForPartitionException}
-import kafka.controller.ReassignedPartitionsContext
-import kafka.controller.KafkaController
-import kafka.controller.LeaderIsrAndControllerEpoch
+import kafka.controller._
 import kafka.common.TopicAndPartition
 
 import org.apache.zookeeper.AsyncCallback.{DataCallback,StringCallback}
@@ -52,6 +50,7 @@ object ZkUtils extends Logging {
   val ControllerPath = "/controller"
   val ControllerEpochPath = "/controller_epoch"
   val ReassignPartitionsPath = "/admin/reassign_partitions"
+  val SelfHealingPath = "/admin/self_healing"
   val DeleteTopicsPath = "/admin/delete_topics"
   val PreferredReplicaLeaderElectionPath = "/admin/preferred_replica_election"
   val BrokerSequenceIdPath = "/brokers/seqid"
@@ -67,7 +66,8 @@ object ZkUtils extends Logging {
                               ZkUtils.getEntityConfigRootPath(ConfigType.Client),
                               DeleteTopicsPath,
                               BrokerSequenceIdPath,
-                              IsrChangeNotificationPath)
+                              IsrChangeNotificationPath,
+                              SelfHealingPath)
 
   def getTopicPath(topic: String): String = {
     BrokerTopicsPath + "/" + topic
@@ -85,6 +85,9 @@ object ZkUtils extends Logging {
 
   def getDeleteTopicPath(topic: String): String =
     DeleteTopicsPath + "/" + topic
+
+  def getSelfHealingPath(seqid: String): String =
+    SelfHealingPath + "/" + seqid
 
   def getController(zkClient: ZkClient): Int = {
     readDataMaybeNull(zkClient, ControllerPath)._1 match {
@@ -579,6 +582,41 @@ object ZkUtils extends Logging {
     }
   }
 
+  def getSelfHealingTasks(zkClient: ZkClient): mutable.HashSet[SelfHealingTask] = {
+    val ret = new mutable.HashSet[SelfHealingTask]
+    val taskIds = getChildrenParentMayNotExist(zkClient, SelfHealingPath)
+    taskIds.foreach { taskId =>
+      val zkPath = getSelfHealingPath(taskId)
+      val jsonTaskOpt = readDataMaybeNull(zkClient, zkPath)._1
+      jsonTaskOpt match {
+        case Some(jsonTaskString) =>
+          Json.parseFull(jsonTaskString) match {
+            case Some(jsonTaskMap) => {
+              val taskMap = jsonTaskMap.asInstanceOf[Map[String, Any]]
+              taskMap.get("timestamp") match {
+                case Some(timestampString) => taskMap.get("replicas") match {
+                  case Some(jsonReplicasList) =>
+                    val healingReplicas = jsonReplicasList.asInstanceOf[List[Map[String, Any]]].map { m =>
+                      val topic = m.get("topic").get.asInstanceOf[String]
+                      val partition = m.get("partition").get.asInstanceOf[Int]
+                      val replica = m.get("replica").get.asInstanceOf[Int]
+                      TopicAndPartition(topic, partition) -> replica
+                    }
+                    val partitionAndReplicas = healingReplicas.map { case (tp, r) => PartitionAndReplica(tp.topic, tp.partition, r) }
+                    ret += SelfHealingTask(partitionAndReplicas.toSet, timestampString.asInstanceOf[String].toLong, zkPath)
+                  case None =>
+                }
+                case None =>
+              }
+            }
+            case None =>
+          }
+        case None =>
+      }
+    }
+    ret
+  }
+
   // Parses without deduplicating keys so the the data can be checked before allowing reassignment to proceed
   def parsePartitionReassignmentDataWithoutDedup(jsonData: String): Seq[(TopicAndPartition, Seq[Int])] = {
     Json.parseFull(jsonData) match {
@@ -626,6 +664,10 @@ object ZkUtils extends Logging {
                                                                                           "replicas" -> e._2))))
   }
 
+  def getSelfHealingZkData(partitionAndReplicas: Set[PartitionAndReplica], timestamp: Long): String = {
+    Json.encode(Map("version" -> 1, "timestamp" -> timestamp.toString, "replicas" -> partitionAndReplicas.map(e => Map("topic" -> e.topic, "partition" -> e.partition, "replica" -> e.replica))))
+  }
+
   def updatePartitionReassignmentData(zkClient: ZkClient, partitionsToBeReassigned: Map[TopicAndPartition, Seq[Int]]) {
     val zkPath = ZkUtils.ReassignPartitionsPath
     partitionsToBeReassigned.size match {
@@ -643,6 +685,21 @@ object ZkUtils extends Logging {
             debug("Created path %s with %s for partition reassignment".format(zkPath, jsonData))
           case e2: Throwable => throw new AdminOperationException(e2.toString)
         }
+    }
+  }
+
+  def addSelfHealingTask(zkClient: ZkClient, partitionAndReplicas: Set[PartitionAndReplica], timestamp: Long): String = {
+    val jsonData = getSelfHealingZkData(partitionAndReplicas, timestamp)
+    try {
+      val path = createSequentialPersistentPath(zkClient, ZkUtils.SelfHealingPath + "/", jsonData)
+      debug("Updated self healing path with %s".format(jsonData))
+      path
+    } catch {
+      case nne: ZkNoNodeException =>
+        val path = ZkUtils.createSequentialPersistentPath(zkClient, ZkUtils.SelfHealingPath, jsonData)
+        debug("Created self healing path with %s".format(jsonData))
+        path
+      case e2: Throwable => throw new AdminOperationException(e2.toString)
     }
   }
 
