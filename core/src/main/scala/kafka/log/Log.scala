@@ -438,6 +438,7 @@ class Log(val dir: File,
 
       // Check if the message sizes are valid.
       val messageSize = MessageSet.entrySize(m)
+      error("SIZE VALIDATE: Message size is %d bytes".format(messageSize))
       if(messageSize > config.maxMessageSize) {
         BrokerTopicStats.getBrokerTopicStats(topicAndPartition.topic).bytesRejectedRate.mark(messages.sizeInBytes)
         BrokerTopicStats.getBrokerAllTopicsStats.bytesRejectedRate.mark(messages.sizeInBytes)
