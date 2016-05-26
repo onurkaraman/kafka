@@ -73,7 +73,7 @@ public class ConsumerProtocol {
             new Field(TOPICS_KEY_NAME, new ArrayOf(Type.STRING)),
             new Field(USER_DATA_KEY_NAME, Type.NULLABLE_BYTES));
     public static final Schema TOPIC_ASSIGNMENT_V0 = new Schema(
-            new Field(TOPIC_KEY_NAME, Type.STRING),
+            new Field(TOPIC_KEY_NAME, Type.INT32),
             new Field(PARTITIONS_KEY_NAME, new ArrayOf(Type.INT32)));
     public static final Schema ASSIGNMENT_V0 = new Schema(
             new Field(TOPIC_PARTITIONS_KEY_NAME, new ArrayOf(TOPIC_ASSIGNMENT_V0)),
@@ -102,16 +102,18 @@ public class ConsumerProtocol {
         return new PartitionAssignor.Subscription(topics, userData);
     }
 
-    public static PartitionAssignor.Assignment deserializeAssignment(ByteBuffer buffer) {
+    public static PartitionAssignor.Assignment deserializeAssignment(PartitionAssignor.Subscription subscription, ByteBuffer buffer) {
         Struct header = CONSUMER_PROTOCOL_HEADER_SCHEMA.read(buffer);
         Short version = header.getShort(VERSION_KEY_NAME);
         checkVersionCompatibility(version);
         Struct struct = ASSIGNMENT_V0.read(buffer);
         ByteBuffer userData = struct.getBytes(USER_DATA_KEY_NAME);
         List<TopicPartition> partitions = new ArrayList<>();
+        List<String> topicSubscriptions = subscription.topics();
         for (Object structObj : struct.getArray(TOPIC_PARTITIONS_KEY_NAME)) {
             Struct assignment = (Struct) structObj;
-            String topic = assignment.getString(TOPIC_KEY_NAME);
+            Integer topicIndex = assignment.getInt(TOPIC_KEY_NAME);
+            String topic = topicSubscriptions.get(topicIndex);
             for (Object partitionObj : assignment.getArray(PARTITIONS_KEY_NAME)) {
                 Integer partition = (Integer) partitionObj;
                 partitions.add(new TopicPartition(topic, partition));
@@ -120,13 +122,18 @@ public class ConsumerProtocol {
         return new PartitionAssignor.Assignment(partitions, userData);
     }
 
-    public static ByteBuffer serializeAssignment(PartitionAssignor.Assignment assignment) {
+    public static ByteBuffer serializeAssignment(PartitionAssignor.Subscription subscription, PartitionAssignor.Assignment assignment) {
         Struct struct = new Struct(ASSIGNMENT_V0);
         struct.set(USER_DATA_KEY_NAME, assignment.userData());
         List<Struct> topicAssignments = new ArrayList<>();
+        List<String> topicSubscriptions = subscription.topics();
+        Map<String, Integer> topicIndex = new HashMap<>();
+        for (int i = 0; i < topicSubscriptions.size(); i++) {
+            topicIndex.put(topicSubscriptions.get(i), i);
+        }
         for (Map.Entry<String, List<Integer>> topicEntry : asMap(assignment.partitions()).entrySet()) {
             Struct topicAssignment = new Struct(TOPIC_ASSIGNMENT_V0);
-            topicAssignment.set(TOPIC_KEY_NAME, topicEntry.getKey());
+            topicAssignment.set(TOPIC_KEY_NAME, topicIndex.get(topicEntry.getKey()));
             topicAssignment.set(PARTITIONS_KEY_NAME, topicEntry.getValue().toArray());
             topicAssignments.add(topicAssignment);
         }

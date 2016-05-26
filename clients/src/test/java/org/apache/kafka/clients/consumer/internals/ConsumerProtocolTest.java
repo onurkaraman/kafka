@@ -85,16 +85,18 @@ public class ConsumerProtocolTest {
     @Test
     public void serializeDeserializeAssignment() {
         List<TopicPartition> partitions = Arrays.asList(new TopicPartition("foo", 0), new TopicPartition("bar", 2));
-        ByteBuffer buffer = ConsumerProtocol.serializeAssignment(new PartitionAssignor.Assignment(partitions));
-        PartitionAssignor.Assignment parsedAssignment = ConsumerProtocol.deserializeAssignment(buffer);
+        Subscription subscription = new Subscription(Arrays.asList("foo", "bar"));
+        ByteBuffer buffer = ConsumerProtocol.serializeAssignment(subscription, new PartitionAssignor.Assignment(partitions));
+        PartitionAssignor.Assignment parsedAssignment = ConsumerProtocol.deserializeAssignment(subscription, buffer);
         assertEquals(toSet(partitions), toSet(parsedAssignment.partitions()));
     }
 
     @Test
     public void deserializeNullAssignmentUserData() {
         List<TopicPartition> partitions = Arrays.asList(new TopicPartition("foo", 0), new TopicPartition("bar", 2));
-        ByteBuffer buffer = ConsumerProtocol.serializeAssignment(new PartitionAssignor.Assignment(partitions, null));
-        PartitionAssignor.Assignment parsedAssignment = ConsumerProtocol.deserializeAssignment(buffer);
+        Subscription subscription = new Subscription(Arrays.asList("foo", "bar"));
+        ByteBuffer buffer = ConsumerProtocol.serializeAssignment(subscription, new PartitionAssignor.Assignment(partitions, null));
+        PartitionAssignor.Assignment parsedAssignment = ConsumerProtocol.deserializeAssignment(subscription, buffer);
         assertEquals(toSet(partitions), toSet(parsedAssignment.partitions()));
         assertNull(parsedAssignment.userData());
     }
@@ -125,8 +127,8 @@ public class ConsumerProtocolTest {
         assignmentV100.writeTo(buffer);
 
         buffer.flip();
-
-        PartitionAssignor.Assignment assignment = ConsumerProtocol.deserializeAssignment(buffer);
+        Subscription subscription = new Subscription(Arrays.asList("foo"));
+        PartitionAssignor.Assignment assignment = ConsumerProtocol.deserializeAssignment(subscription, buffer);
         assertEquals(toSet(Arrays.asList(new TopicPartition("foo", 1))), toSet(assignment.partitions()));
     }
 

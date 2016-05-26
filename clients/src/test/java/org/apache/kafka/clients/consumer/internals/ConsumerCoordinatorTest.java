@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.clients.consumer.internals;
 
+import java.util.ArrayList;
 import org.apache.kafka.clients.ClientRequest;
 import org.apache.kafka.clients.Metadata;
 import org.apache.kafka.clients.MockClient;
@@ -1164,7 +1165,12 @@ public class ConsumerCoordinatorTest {
     }
 
     private Struct syncGroupResponse(List<TopicPartition> partitions, short error) {
-        ByteBuffer buf = ConsumerProtocol.serializeAssignment(new PartitionAssignor.Assignment(partitions));
+        List<String> topics = new ArrayList<>();
+        for (TopicPartition partition : partitions) {
+            if (!topics.contains(partition.topic()))
+                topics.add(partition.topic());
+        }
+        ByteBuffer buf = ConsumerProtocol.serializeAssignment(new PartitionAssignor.Subscription(topics), new PartitionAssignor.Assignment(partitions));
         return new SyncGroupResponse(error, buf).toStruct();
     }
 

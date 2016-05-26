@@ -198,8 +198,8 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
         PartitionAssignor assignor = lookupAssignor(assignmentStrategy);
         if (assignor == null)
             throw new IllegalStateException("Coordinator selected invalid assignment protocol: " + assignmentStrategy);
-
-        Assignment assignment = ConsumerProtocol.deserializeAssignment(assignmentBuffer);
+        Subscription subscription = assignor.subscription(subscriptions.subscription());
+        Assignment assignment = ConsumerProtocol.deserializeAssignment(subscription, assignmentBuffer);
 
         // set the flag to refresh last committed offsets
         subscriptions.needRefreshCommits();
@@ -263,7 +263,7 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
 
         Map<String, ByteBuffer> groupAssignment = new HashMap<>();
         for (Map.Entry<String, Assignment> assignmentEntry : assignment.entrySet()) {
-            ByteBuffer buffer = ConsumerProtocol.serializeAssignment(assignmentEntry.getValue());
+            ByteBuffer buffer = ConsumerProtocol.serializeAssignment(subscriptions.get(assignmentEntry.getKey()), assignmentEntry.getValue());
             groupAssignment.put(assignmentEntry.getKey(), buffer);
         }
 
