@@ -18,7 +18,7 @@
 package kafka.consumer
 
 import kafka.server.{AbstractFetcherManager, AbstractFetcherThread, BrokerAndInitialOffset}
-import kafka.cluster.{BrokerEndPoint, Cluster}
+import kafka.cluster.BrokerEndPoint
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.utils.Time
 
@@ -44,7 +44,6 @@ class ConsumerFetcherManager(private val consumerIdString: String,
         extends AbstractFetcherManager("ConsumerFetcherManager-%d".format(Time.SYSTEM.milliseconds),
                                        config.clientId, config.numConsumerFetchers) {
   private var partitionMap: immutable.Map[TopicPartition, PartitionTopicInfo] = null
-  private var cluster: Cluster = null
   private val noLeaderPartitionSet = new mutable.HashSet[TopicPartition]
   private val lock = new ReentrantLock
   private val cond = lock.newCondition()
@@ -119,13 +118,12 @@ class ConsumerFetcherManager(private val consumerIdString: String,
       config, sourceBroker, partitionMap, this)
   }
 
-  def startConnections(topicInfos: Iterable[PartitionTopicInfo], cluster: Cluster) {
+  def startConnections(topicInfos: Iterable[PartitionTopicInfo]) {
     leaderFinderThread = new LeaderFinderThread(consumerIdString + "-leader-finder-thread")
     leaderFinderThread.start()
 
     inLock(lock) {
       partitionMap = topicInfos.map(tpi => (new TopicPartition(tpi.topic, tpi.partitionId), tpi)).toMap
-      this.cluster = cluster
       noLeaderPartitionSet ++= topicInfos.map(tpi => new TopicPartition(tpi.topic, tpi.partitionId))
       cond.signalAll()
     }

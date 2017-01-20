@@ -195,7 +195,31 @@ class ConsumerConfig private (val props: VerifiableProperties) extends ZKConfig(
 
   /** Select a strategy for assigning partitions to consumer streams. Possible values: range, roundrobin */
   val partitionAssignmentStrategy = props.getString("partition.assignment.strategy", DefaultPartitionAssignmentStrategy)
-  
+
+  /** Specify whether the ZookeeperConsumerConnector should participate in coordination migration. */
+  val coordinationMigrationEnabled = props.getBoolean("coordination.migration.enabled", false)
+
+  /** The poll interval for the embedded KafkaConsumer participating in coordination migration. */
+  val coordinationMigrationPollIntervalMs = props.getInt("coordination.migration.poll.interval.ms", 1000)
+
+  /** Specify consumer configs for the embedded KafkaConsumer by prepending "coordination.migration." to config names.
+    * The following consumer config must be provided:
+    * coordination.migration.bootstrap.servers */
+  val coordinationMigrationEmbeddedConsumerConfigs = {
+    import collection.JavaConverters._
+    val consumerConfigs = org.apache.kafka.clients.consumer.ConsumerConfig.configNames().asScala
+    props.props.asScala.flatMap { case (key, value) =>
+      val prefix = "coordination.migration."
+      val containsPrefix = key.indexOf(prefix) > -1
+      if (containsPrefix) {
+        val suffix = key.substring(key.indexOf(prefix) + prefix.size)
+        if (consumerConfigs.contains(suffix))
+          Option(suffix -> value)
+        else None
+      } else None
+    }
+  }
+
   validate(this)
 }
 

@@ -759,6 +759,11 @@ class ZkUtils(val zkClient: ZkClient,
     getChildren(dirs.consumerRegistryDir)
   }
 
+  def getMigrationAwareConsumersInGroup(group: String): Seq[String] = {
+    val dirs = new ZKGroupDirs(group)
+    getChildren(dirs.consumerMigrationRegistryDir)
+  }
+
   def getConsumersPerTopic(group: String, excludeInternalTopics: Boolean): mutable.Map[String, List[ConsumerThreadId]] = {
     val dirs = new ZKGroupDirs(group)
     val consumers = getChildrenParentMayNotExist(dirs.consumerRegistryDir)
@@ -893,6 +898,9 @@ class ZKGroupDirs(val group: String) {
   def consumerRegistryDir = consumerGroupDir + "/ids"
   def consumerGroupOffsetsDir = consumerGroupDir + "/offsets"
   def consumerGroupOwnersDir = consumerGroupDir + "/owners"
+  def consumerMigrationDir = consumerGroupDir + "/migration"
+  def consumerMigrationRegistryDir = consumerMigrationDir + "/ids"
+  def consumerMigrationModeDir = consumerMigrationDir + "/mode"
 }
 
 class ZKGroupTopicDirs(group: String, topic: String) extends ZKGroupDirs(group) {

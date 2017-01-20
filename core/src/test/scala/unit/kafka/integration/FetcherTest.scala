@@ -24,7 +24,6 @@ import org.junit.{Test, After, Before}
 import scala.collection._
 import org.junit.Assert._
 
-import kafka.cluster._
 import kafka.server._
 import kafka.consumer._
 import kafka.utils.TestUtils
@@ -44,10 +43,6 @@ class FetcherTest extends KafkaServerTestHarness {
     super.setUp
     TestUtils.createTopic(zkUtils, topic, partitionReplicaAssignment = Map(0 -> Seq(configs.head.brokerId)), servers = servers)
 
-    val cluster = new Cluster(servers.map { s =>
-      new Broker(s.config.brokerId, "localhost", boundPort(s), listenerName, securityProtocol)
-    })
-
     fetcher = new ConsumerFetcherManager("consumer1", new ConsumerConfig(TestUtils.createConsumerProperties("", "", "")), zkUtils)
     fetcher.stopConnections()
     val topicInfos = configs.map(_ =>
@@ -58,7 +53,7 @@ class FetcherTest extends KafkaServerTestHarness {
         new AtomicLong(0),
         new AtomicInteger(0),
         ""))
-    fetcher.startConnections(topicInfos, cluster)
+    fetcher.startConnections(topicInfos)
   }
 
   @After
