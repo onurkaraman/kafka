@@ -738,6 +738,34 @@ class ZkUtils(val zkClient: ZkClient,
     }
   }
 
+  def parseIsrChangeNotification(sequenceNumber: String): Set[TopicAndPartition] = {
+    val znode: String = ZkUtils.IsrChangeNotificationPath + "/" + sequenceNumber
+    val (jsonOpt, _) = readDataMaybeNull(znode)
+    if (jsonOpt.isDefined) {
+      val json = Json.parseFull(jsonOpt.get)
+
+      json match {
+        case Some(m) =>
+          val topicAndPartitions: mutable.Set[TopicAndPartition] = new mutable.HashSet[TopicAndPartition]()
+          val isrChanges = m.asInstanceOf[Map[String, Any]]
+          val topicAndPartitionList = isrChanges("partitions").asInstanceOf[List[Any]]
+          topicAndPartitionList.foreach {
+            case tp =>
+              val topicAndPartition = tp.asInstanceOf[Map[String, Any]]
+              val topic = topicAndPartition("topic").asInstanceOf[String]
+              val partition = topicAndPartition("partition").asInstanceOf[Int]
+              topicAndPartitions += TopicAndPartition(topic, partition)
+          }
+          topicAndPartitions
+        case None =>
+          error("Invalid topic and partition JSON: " + jsonOpt.get + " in ZK: " + znode)
+          Set.empty
+      }
+    } else {
+      Set.empty
+    }
+  }
+
   def getPartitionsUndergoingPreferredReplicaElection(): Set[TopicAndPartition] = {
     // read the partitions and their new replica list
     val jsonPartitionListOpt = readDataMaybeNull(PreferredReplicaLeaderElectionPath)._1
