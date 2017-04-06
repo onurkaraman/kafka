@@ -40,7 +40,7 @@ import org.apache.kafka.common.internals.FatalExitError
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.common.protocol.{ApiKeys, Errors, Protocol}
-import org.apache.kafka.common.record.{RecordBatch, MemoryRecords, TimestampType}
+import org.apache.kafka.common.record.{MemoryRecords, RecordBatch, TimestampType}
 import org.apache.kafka.common.requests._
 import org.apache.kafka.common.requests.ProduceResponse.PartitionResponse
 import org.apache.kafka.common.utils.{Time, Utils}
@@ -49,7 +49,7 @@ import org.apache.kafka.common.requests.SaslHandshakeResponse
 
 import scala.collection._
 import scala.collection.JavaConverters._
-import scala.util.Random
+import scala.util.Try
 
 /**
  * Logic to handle the various Kafka requests
@@ -228,10 +228,17 @@ class KafkaApis(val requestChannel: RequestChannel,
 
     authorizeClusterAction(request)
 
-    val partitionsRemaining = controller.shutdownBroker(controlledShutdownRequest.brokerId)
-    val controlledShutdownResponse = new ControlledShutdownResponse(controlledShutdownRequest.correlationId,
-      Errors.NONE, partitionsRemaining)
-    requestChannel.sendResponse(new Response(request, new RequestOrResponseSend(request.connectionId, controlledShutdownResponse)))
+    def controlledShutdownCallback(controlledShutdownResult: Try[Set[TopicAndPartition]]): Unit = {
+      if (controlledShutdownResult.isSuccess) {
+        val partitionsRemaining = controlledShutdownResult.get
+        val controlledShutdownResponse = new ControlledShutdownResponse(controlledShutdownRequest.correlationId,
+          Errors.NONE, partitionsRemaining)
+        requestChannel.sendResponse(new Response(request, new RequestOrResponseSend(request.connectionId, controlledShutdownResponse)))
+      } else {
+        request.requestObj.handleError(controlledShutdownResult.failed.get, requestChannel, request)
+      }
+    }
+    controller.shutdownBroker(controlledShutdownRequest.brokerId, controlledShutdownCallback)
   }
 
   /**
