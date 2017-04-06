@@ -344,6 +344,10 @@ class ControllerBrokerRequestBatch(controller: KafkaController) extends  Logging
 
   def sendRequestsToBrokers(controllerEpoch: Int) {
     try {
+      val leaderAndIsrRequestVersion: Short =
+        if (controller.config.interBrokerProtocolVersion >= KAFKA_0_11_0_IV3) 1
+        else 0
+
       leaderAndIsrRequestMap.foreach { case (broker, partitionStateInfos) =>
         partitionStateInfos.foreach { case (topicPartition, state) =>
           val typeOfRequest = if (broker == state.leaderIsrAndControllerEpoch.leaderAndIsr.leader) "become-leader" else "become-follower"
@@ -363,8 +367,7 @@ class ControllerBrokerRequestBatch(controller: KafkaController) extends  Logging
             partitionStateInfo.allReplicas.map(Integer.valueOf).asJava)
           topicPartition -> partitionState
         }
-        val leaderAndIsrRequest = new LeaderAndIsrRequest.Builder(controllerId, controllerEpoch, partitionStates.asJava,
-          leaders.asJava)
+        val leaderAndIsrRequest = new LeaderAndIsrRequest.Builder(leaderAndIsrRequestVersion, controllerId, controllerEpoch, controllerContext.brokerSessionIds(broker), partitionStates.asJava, leaders.asJava)
         controller.sendRequest(broker, ApiKeys.LEADER_AND_ISR, leaderAndIsrRequest)
       }
       leaderAndIsrRequestMap.clear()
@@ -378,41 +381,43 @@ class ControllerBrokerRequestBatch(controller: KafkaController) extends  Logging
           leaderIsr.leaderEpoch, leaderIsr.isr.map(Integer.valueOf).asJava, leaderIsr.zkVersion,
           partitionStateInfo.allReplicas.map(Integer.valueOf).asJava)
         topicPartition -> partitionState
-      }
+      }.asJava
 
-      val version: Short =
-        if (controller.config.interBrokerProtocolVersion >= KAFKA_0_10_2_IV0) 3
+      val updateMetadataRequestVersion: Short =
+        if (controller.config.interBrokerProtocolVersion >= KAFKA_0_11_0_IV3) 4
+        else if (controller.config.interBrokerProtocolVersion >= KAFKA_0_10_2_IV0) 3
         else if (controller.config.interBrokerProtocolVersion >= KAFKA_0_10_0_IV1) 2
         else if (controller.config.interBrokerProtocolVersion >= KAFKA_0_9_0) 1
         else 0
 
-      val updateMetadataRequest = {
-        val liveBrokers = if (version == 0) {
-          // Version 0 of UpdateMetadataRequest only supports PLAINTEXT.
-          controllerContext.liveOrShuttingDownBrokers.map { broker =>
-            val securityProtocol = SecurityProtocol.PLAINTEXT
-            val listenerName = ListenerName.forSecurityProtocol(securityProtocol)
-            val node = broker.getNode(listenerName)
-            val endPoints = Seq(new EndPoint(node.host, node.port, securityProtocol, listenerName))
-            new UpdateMetadataRequest.Broker(broker.id, endPoints.asJava, broker.rack.orNull)
+      val liveBrokers = if (updateMetadataRequestVersion == 0) {
+        // Version 0 of UpdateMetadataRequest only supports PLAINTEXT.
+        controllerContext.liveOrShuttingDownBrokers.map { broker =>
+          val securityProtocol = SecurityProtocol.PLAINTEXT
+          val listenerName = ListenerName.forSecurityProtocol(securityProtocol)
+          val node = broker.getNode(listenerName)
+          val endPoints = Seq(new EndPoint(node.host, node.port, securityProtocol, listenerName))
+          new UpdateMetadataRequest.Broker(broker.id, endPoints.asJava, broker.rack.orNull)
+        }.asJava
+      } else {
+        controllerContext.liveOrShuttingDownBrokers.map { broker =>
+          val endPoints = broker.endPoints.map { endPoint =>
+            new UpdateMetadataRequest.EndPoint(endPoint.host, endPoint.port, endPoint.securityProtocol, endPoint.listenerName)
           }
-        } else {
-          controllerContext.liveOrShuttingDownBrokers.map { broker =>
-            val endPoints = broker.endPoints.map { endPoint =>
-              new UpdateMetadataRequest.EndPoint(endPoint.host, endPoint.port, endPoint.securityProtocol, endPoint.listenerName)
-            }
-            new UpdateMetadataRequest.Broker(broker.id, endPoints.asJava, broker.rack.orNull)
-          }
-        }
-        new UpdateMetadataRequest.Builder(version, controllerId, controllerEpoch, partitionStates.asJava,
-          liveBrokers.asJava)
+          new UpdateMetadataRequest.Broker(broker.id, endPoints.asJava, broker.rack.orNull)
+        }.asJava
       }
 
       updateMetadataRequestBrokerSet.foreach { broker =>
+        val updateMetadataRequest = new UpdateMetadataRequest.Builder(updateMetadataRequestVersion, controllerId, controllerEpoch, controllerContext.brokerSessionIds(broker), partitionStates, liveBrokers)
         controller.sendRequest(broker, ApiKeys.UPDATE_METADATA_KEY, updateMetadataRequest, null)
       }
       updateMetadataRequestBrokerSet.clear()
       updateMetadataRequestPartitionInfoMap.clear()
+
+      val stopReplicaRequestVersion: Short =
+        if (controller.config.interBrokerProtocolVersion >= KAFKA_0_11_0_IV3) 1
+        else 0
 
       stopReplicaRequestMap.foreach { case (broker, replicaInfoList) =>
         val stopReplicaWithDelete = replicaInfoList.filter(_.deletePartition).map(_.replica).toSet
@@ -426,13 +431,13 @@ class ControllerBrokerRequestBatch(controller: KafkaController) extends  Logging
 
         // Send one StopReplicaRequest for all partitions that require neither delete nor callback. This potentially
         // changes the order in which the requests are sent for the same partitions, but that's OK.
-        val stopReplicaRequest = new StopReplicaRequest.Builder(controllerId, controllerEpoch, false,
+        val stopReplicaRequest = new StopReplicaRequest.Builder(stopReplicaRequestVersion, controllerId, controllerEpoch, controllerContext.brokerSessionIds(broker), false,
           replicasToGroup.map(r => new TopicPartition(r.replica.topic, r.replica.partition)).toSet.asJava)
         controller.sendRequest(broker, ApiKeys.STOP_REPLICA, stopReplicaRequest)
 
         replicasToNotGroup.foreach { r =>
           val stopReplicaRequest = new StopReplicaRequest.Builder(
-              controllerId, controllerEpoch, r.deletePartition,
+              stopReplicaRequestVersion, controllerId, controllerEpoch, controllerContext.brokerSessionIds(broker), r.deletePartition,
               Set(new TopicPartition(r.replica.topic, r.replica.partition)).asJava)
           controller.sendRequest(broker, ApiKeys.STOP_REPLICA, stopReplicaRequest, r.callback)
         }

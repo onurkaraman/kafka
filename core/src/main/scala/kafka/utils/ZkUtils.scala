@@ -835,6 +835,13 @@ class ZkUtils(val zkClient: ZkClient,
     }
   }
 
+  def getBrokerInfoWithStat(brokerId: Int): Option[(Broker, Stat)] = {
+    readDataMaybeNull(BrokerIdsPath + "/" + brokerId) match {
+      case (Some(brokerInfo), stat) => Some(Broker.createBroker(brokerId, brokerInfo), stat)
+      case (None, _) => None
+    }
+  }
+
   /**
     * This API produces a sequence number by creating / updating given path in zookeeper
     * It uses the stat returned by the zookeeper and return the version. Every time
@@ -1020,7 +1027,7 @@ class ZKCheckedEphemeral(path: String,
                       name: String) {
       Code.get(rc) match {
         case Code.OK =>
-           setResult(Code.OK)
+          setResult(Code.OK)
         case Code.CONNECTIONLOSS =>
           // try again
           createEphemeral

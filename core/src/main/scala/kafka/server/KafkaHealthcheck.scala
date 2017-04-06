@@ -20,6 +20,7 @@ package kafka.server
 import java.net.InetAddress
 import java.util.Locale
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 import kafka.api.ApiVersion
 import kafka.cluster.EndPoint
@@ -41,7 +42,8 @@ class KafkaHealthcheck(brokerId: Int,
                        advertisedEndpoints: Seq[EndPoint],
                        zkUtils: ZkUtils,
                        rack: Option[String],
-                       interBrokerProtocolVersion: ApiVersion) extends Logging {
+                       interBrokerProtocolVersion: ApiVersion,
+                       sessionId: AtomicLong) extends Logging {
 
   private[server] val sessionExpireListener = new SessionExpireListener
 
@@ -54,6 +56,7 @@ class KafkaHealthcheck(brokerId: Int,
    * Register this broker as "alive" in zookeeper
    */
   def register() {
+    sessionId.set(zkUtils.zkConnection.getZookeeper.getSessionId)
     val jmxPort = System.getProperty("com.sun.management.jmxremote.port", "-1").toInt
     val updatedEndpoints = advertisedEndpoints.map(endpoint =>
       if (endpoint.host == null || endpoint.host.trim.isEmpty)

@@ -933,6 +933,13 @@ public class Protocol {
                                                                                 new ArrayOf(LEADER_AND_ISR_REQUEST_PARTITION_STATE_V0)),
                                                                       new Field("live_leaders", new ArrayOf(LEADER_AND_ISR_REQUEST_LIVE_LEADER_V0)));
 
+    public static final Schema LEADER_AND_ISR_REQUEST_V1 = new Schema(new Field("controller_id", INT32, "The controller id."),
+                                                                      new Field("controller_epoch", INT32, "The controller epoch."),
+                                                                      new Field("sessionId", INT64, "The broker zookeeper session id."),
+                                                                      new Field("partition_states",
+                                                                                new ArrayOf(LEADER_AND_ISR_REQUEST_PARTITION_STATE_V0)),
+                                                                      new Field("live_leaders", new ArrayOf(LEADER_AND_ISR_REQUEST_LIVE_LEADER_V0)));
+
     public static final Schema LEADER_AND_ISR_RESPONSE_PARTITION_V0 = new Schema(new Field("topic", STRING, "Topic name."),
                                                                                  new Field("partition", INT32, "Topic partition id."),
                                                                                  new Field("error_code", INT16, "Error code."));
@@ -941,8 +948,9 @@ public class Protocol {
                                                                        new Field("partitions",
                                                                                  new ArrayOf(LEADER_AND_ISR_RESPONSE_PARTITION_V0)));
 
-    public static final Schema[] LEADER_AND_ISR_REQUEST = new Schema[] {LEADER_AND_ISR_REQUEST_V0};
-    public static final Schema[] LEADER_AND_ISR_RESPONSE = new Schema[] {LEADER_AND_ISR_RESPONSE_V0};
+    public static final Schema LEADER_AND_ISR_RESPONSE_V1 = LEADER_AND_ISR_RESPONSE_V0;
+    public static final Schema[] LEADER_AND_ISR_REQUEST = new Schema[] {LEADER_AND_ISR_REQUEST_V0, LEADER_AND_ISR_REQUEST_V1};
+    public static final Schema[] LEADER_AND_ISR_RESPONSE = new Schema[] {LEADER_AND_ISR_RESPONSE_V0, LEADER_AND_ISR_RESPONSE_V1};
 
     /* Replica api */
     public static final Schema STOP_REPLICA_REQUEST_PARTITION_V0 = new Schema(new Field("topic", STRING, "Topic name."),
@@ -950,6 +958,14 @@ public class Protocol {
 
     public static final Schema STOP_REPLICA_REQUEST_V0 = new Schema(new Field("controller_id", INT32, "The controller id."),
                                                                     new Field("controller_epoch", INT32, "The controller epoch."),
+                                                                    new Field("delete_partitions", BOOLEAN,
+                                                                              "Boolean which indicates if replica's partitions must be deleted."),
+                                                                    new Field("partitions",
+                                                                              new ArrayOf(STOP_REPLICA_REQUEST_PARTITION_V0)));
+
+    public static final Schema STOP_REPLICA_REQUEST_V1 = new Schema(new Field("controller_id", INT32, "The controller id."),
+                                                                    new Field("controller_epoch", INT32, "The controller epoch."),
+                                                                    new Field("sessionId", INT64, "The broker zookeeper session id."),
                                                                     new Field("delete_partitions", BOOLEAN,
                                                                               "Boolean which indicates if replica's partitions must be deleted."),
                                                                     new Field("partitions",
@@ -963,8 +979,10 @@ public class Protocol {
                                                                      new Field("partitions",
                                                                                new ArrayOf(STOP_REPLICA_RESPONSE_PARTITION_V0)));
 
-    public static final Schema[] STOP_REPLICA_REQUEST = new Schema[] {STOP_REPLICA_REQUEST_V0};
-    public static final Schema[] STOP_REPLICA_RESPONSE = new Schema[] {STOP_REPLICA_RESPONSE_V0};
+    public static final Schema STOP_REPLICA_RESPONSE_V1 = STOP_REPLICA_RESPONSE_V0;
+
+    public static final Schema[] STOP_REPLICA_REQUEST = new Schema[] {STOP_REPLICA_REQUEST_V0, STOP_REPLICA_REQUEST_V1};
+    public static final Schema[] STOP_REPLICA_RESPONSE = new Schema[] {STOP_REPLICA_RESPONSE_V0, STOP_REPLICA_RESPONSE_V1};
 
     /* Update metadata api */
 
@@ -1041,12 +1059,20 @@ public class Protocol {
                     new Field("partition_states", new ArrayOf(UPDATE_METADATA_REQUEST_PARTITION_STATE_V3)),
                     new Field("live_brokers", new ArrayOf(UPDATE_METADATA_REQUEST_BROKER_V3)));
 
+    public static final Schema UPDATE_METADATA_REQUEST_V4 =
+            new Schema(new Field("controller_id", INT32, "The controller id."),
+                    new Field("controller_epoch", INT32, "The controller epoch."),
+                    new Field("sessionId", INT64, "The broker zookeeper session id."),
+                    new Field("partition_states", new ArrayOf(UPDATE_METADATA_REQUEST_PARTITION_STATE_V3)),
+                    new Field("live_brokers", new ArrayOf(UPDATE_METADATA_REQUEST_BROKER_V3)));
+
     public static final Schema UPDATE_METADATA_RESPONSE_V3 = UPDATE_METADATA_RESPONSE_V2;
+    public static final Schema UPDATE_METADATA_RESPONSE_V4 = UPDATE_METADATA_RESPONSE_V3;
 
     public static final Schema[] UPDATE_METADATA_REQUEST = new Schema[] {UPDATE_METADATA_REQUEST_V0, UPDATE_METADATA_REQUEST_V1,
-        UPDATE_METADATA_REQUEST_V2, UPDATE_METADATA_REQUEST_V3};
+        UPDATE_METADATA_REQUEST_V2, UPDATE_METADATA_REQUEST_V3, UPDATE_METADATA_REQUEST_V4};
     public static final Schema[] UPDATE_METADATA_RESPONSE = new Schema[] {UPDATE_METADATA_RESPONSE_V0, UPDATE_METADATA_RESPONSE_V1,
-        UPDATE_METADATA_RESPONSE_V2, UPDATE_METADATA_RESPONSE_V3};
+        UPDATE_METADATA_RESPONSE_V2, UPDATE_METADATA_RESPONSE_V3, UPDATE_METADATA_RESPONSE_V4};
 
     /* SASL handshake api */
     public static final Schema SASL_HANDSHAKE_REQUEST_V0 = new Schema(

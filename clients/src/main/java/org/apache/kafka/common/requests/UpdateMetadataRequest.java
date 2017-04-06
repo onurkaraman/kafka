@@ -37,14 +37,16 @@ public class UpdateMetadataRequest extends AbstractRequest {
     public static class Builder extends AbstractRequest.Builder<UpdateMetadataRequest> {
         private final int controllerId;
         private final int controllerEpoch;
+        private final long sessionId;
         private final Map<TopicPartition, PartitionState> partitionStates;
         private final Set<Broker> liveBrokers;
 
-        public Builder(short version, int controllerId, int controllerEpoch,
+        public Builder(short version, int controllerId, int controllerEpoch, long sessionId,
                        Map<TopicPartition, PartitionState> partitionStates, Set<Broker> liveBrokers) {
             super(ApiKeys.UPDATE_METADATA_KEY, version);
             this.controllerId = controllerId;
             this.controllerEpoch = controllerEpoch;
+            this.sessionId = sessionId;
             this.partitionStates = partitionStates;
             this.liveBrokers = liveBrokers;
         }
@@ -58,7 +60,7 @@ public class UpdateMetadataRequest extends AbstractRequest {
                     }
                 }
             }
-            return new UpdateMetadataRequest(version, controllerId, controllerEpoch, partitionStates, liveBrokers);
+            return new UpdateMetadataRequest(version, controllerId, controllerEpoch, sessionId, partitionStates, liveBrokers);
         }
 
         @Override
@@ -67,6 +69,7 @@ public class UpdateMetadataRequest extends AbstractRequest {
             bld.append("(type: UpdateMetadataRequest=").
                 append(", controllerId=").append(controllerId).
                 append(", controllerEpoch=").append(controllerEpoch).
+                append(", sessionId=").append(sessionId).
                 append(", partitionStates=").append(partitionStates).
                 append(", liveBrokers=").append(Utils.join(liveBrokers, ", ")).
                 append(")");
@@ -118,6 +121,7 @@ public class UpdateMetadataRequest extends AbstractRequest {
 
     private static final String CONTROLLER_ID_KEY_NAME = "controller_id";
     private static final String CONTROLLER_EPOCH_KEY_NAME = "controller_epoch";
+    private static final String SESSION_ID_KEY_NAME = "sessionId";
     private static final String PARTITION_STATES_KEY_NAME = "partition_states";
     private static final String LIVE_BROKERS_KEY_NAME = "live_brokers";
 
@@ -143,14 +147,16 @@ public class UpdateMetadataRequest extends AbstractRequest {
 
     private final int controllerId;
     private final int controllerEpoch;
+    private final long sessionId;
     private final Map<TopicPartition, PartitionState> partitionStates;
     private final Set<Broker> liveBrokers;
 
-    private UpdateMetadataRequest(short version, int controllerId, int controllerEpoch, Map<TopicPartition,
+    private UpdateMetadataRequest(short version, int controllerId, int controllerEpoch, long sessionId, Map<TopicPartition,
             PartitionState> partitionStates, Set<Broker> liveBrokers) {
         super(version);
         this.controllerId = controllerId;
         this.controllerEpoch = controllerEpoch;
+        this.sessionId = sessionId;
         this.partitionStates = partitionStates;
         this.liveBrokers = liveBrokers;
     }
@@ -221,6 +227,11 @@ public class UpdateMetadataRequest extends AbstractRequest {
         }
         controllerId = struct.getInt(CONTROLLER_ID_KEY_NAME);
         controllerEpoch = struct.getInt(CONTROLLER_EPOCH_KEY_NAME);
+        if (struct.hasField(SESSION_ID_KEY_NAME)) { // V4
+            sessionId = struct.getLong(SESSION_ID_KEY_NAME);
+        } else {
+            sessionId = -1;
+        }
         this.partitionStates = partitionStates;
         this.liveBrokers = liveBrokers;
     }
@@ -231,6 +242,9 @@ public class UpdateMetadataRequest extends AbstractRequest {
         Struct struct = new Struct(ApiKeys.UPDATE_METADATA_KEY.requestSchema(version));
         struct.set(CONTROLLER_ID_KEY_NAME, controllerId);
         struct.set(CONTROLLER_EPOCH_KEY_NAME, controllerEpoch);
+        if (version >= 4) {
+            struct.set(SESSION_ID_KEY_NAME, sessionId);
+        }
 
         List<Struct> partitionStatesData = new ArrayList<>(partitionStates.size());
         for (Map.Entry<TopicPartition, PartitionState> entry : partitionStates.entrySet()) {
@@ -286,7 +300,7 @@ public class UpdateMetadataRequest extends AbstractRequest {
     @Override
     public AbstractResponse getErrorResponse(Throwable e) {
         short versionId = version();
-        if (versionId <= 3)
+        if (versionId <= 4)
             return new UpdateMetadataResponse(Errors.forException(e));
         else
             throw new IllegalArgumentException(String.format("Version %d is not valid. Valid versions for %s are 0 to %d",
@@ -299,6 +313,10 @@ public class UpdateMetadataRequest extends AbstractRequest {
 
     public int controllerEpoch() {
         return controllerEpoch;
+    }
+
+    public long sessionId() {
+        return sessionId;
     }
 
     public Map<TopicPartition, PartitionState> partitionStates() {

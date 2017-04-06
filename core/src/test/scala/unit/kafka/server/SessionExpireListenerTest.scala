@@ -17,6 +17,8 @@
 
 package kafka.server
 
+import java.util.concurrent.atomic.AtomicLong
+
 import kafka.api.ApiVersion
 import kafka.utils.ZkUtils
 import org.I0Itec.zkclient.ZkClient
@@ -26,6 +28,7 @@ import org.junit.{Assert, Test}
 import Assert._
 import com.yammer.metrics.Metrics
 import com.yammer.metrics.core.Meter
+
 import scala.collection.JavaConverters._
 
 class SessionExpireListenerTest {
@@ -54,7 +57,7 @@ class SessionExpireListenerTest {
     val zkClient = EasyMock.mock(classOf[ZkClient])
     val zkUtils = ZkUtils(zkClient, isZkSecurityEnabled = false)
     import Watcher._
-    val healthcheck = new KafkaHealthcheck(brokerId, Seq.empty, zkUtils, None, ApiVersion.latestVersion)
+    val healthcheck = new KafkaHealthcheck(brokerId, Seq.empty, zkUtils, None, ApiVersion.latestVersion, new AtomicLong(-1))
 
     val expiresPerSecName = "ZooKeeperExpiresPerSec"
     val disconnectsPerSecName = "ZooKeeperDisconnectsPerSec"

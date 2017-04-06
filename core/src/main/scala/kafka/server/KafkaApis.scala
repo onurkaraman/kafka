@@ -21,9 +21,10 @@ import java.nio.ByteBuffer
 import java.lang.{Long => JLong}
 import java.util.{Collections, Properties}
 import java.util
+import java.util.concurrent.atomic.AtomicLong
 
 import kafka.admin.{AdminUtils, RackAwareMode}
-import kafka.api.{ControlledShutdownRequest, ControlledShutdownResponse}
+import kafka.api.{ControlledShutdownRequest, ControlledShutdownResponse, KAFKA_0_11_0_IV3}
 import kafka.cluster.Partition
 import kafka.server.QuotaFactory.{QuotaManagers, UnboundedQuota}
 import kafka.common._
@@ -68,6 +69,7 @@ class KafkaApis(val requestChannel: RequestChannel,
                 val authorizer: Option[Authorizer],
                 val quotas: QuotaManagers,
                 val clusterId: String,
+                val sessionId: AtomicLong,
                 time: Time) extends Logging {
 
   this.logIdent = "[KafkaApi-%d] ".format(brokerId)
@@ -150,7 +152,9 @@ class KafkaApis(val requestChannel: RequestChannel,
       }
 
       val leaderAndIsrResponse =
-        if (authorize(request.session, ClusterAction, Resource.ClusterResource)) {
+        if (config.interBrokerProtocolVersion >= KAFKA_0_11_0_IV3 && leaderAndIsrRequest.sessionId() != sessionId.get()) {
+          new LeaderAndIsrResponse(Errors.UNKNOWN, new java.util.HashMap[TopicPartition, Errors]())
+        } else if (authorize(request.session, ClusterAction, Resource.ClusterResource)) {
           val result = replicaManager.becomeLeaderOrFollower(correlationId, leaderAndIsrRequest, onLeadershipChange)
           new LeaderAndIsrResponse(result.error, result.responseMap.asJava)
         } else {
@@ -174,7 +178,9 @@ class KafkaApis(val requestChannel: RequestChannel,
     val stopReplicaRequest = request.body[StopReplicaRequest]
 
     val response =
-      if (authorize(request.session, ClusterAction, Resource.ClusterResource)) {
+      if (config.interBrokerProtocolVersion >= KAFKA_0_11_0_IV3 && stopReplicaRequest.sessionId() != sessionId.get()) {
+        new StopReplicaResponse(Errors.UNKNOWN, new java.util.HashMap[TopicPartition, Errors]())
+      } else if (authorize(request.session, ClusterAction, Resource.ClusterResource)) {
         val (result, error) = replicaManager.stopReplicas(stopReplicaRequest)
         // Clearing out the cache for groups that belong to an offsets topic partition for which this broker was the leader,
         // since this broker is no longer a replica for that offsets topic partition.
@@ -202,7 +208,9 @@ class KafkaApis(val requestChannel: RequestChannel,
     val updateMetadataRequest = request.body[UpdateMetadataRequest]
 
     val updateMetadataResponse =
-      if (authorize(request.session, ClusterAction, Resource.ClusterResource)) {
+      if (config.interBrokerProtocolVersion >= KAFKA_0_11_0_IV3 && updateMetadataRequest.sessionId() != sessionId.get()) {
+        new UpdateMetadataResponse(Errors.UNKNOWN)
+      } else if (authorize(request.session, ClusterAction, Resource.ClusterResource)) {
         val deletedPartitions = replicaManager.maybeUpdateMetadataCache(correlationId, updateMetadataRequest)
         if (deletedPartitions.nonEmpty)
           groupCoordinator.handleDeletedPartitions(deletedPartitions)

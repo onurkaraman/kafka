@@ -52,6 +52,7 @@ class ControllerContext(val zkUtils: ZkUtils) {
   var partitionLeadershipInfo: mutable.Map[TopicAndPartition, LeaderIsrAndControllerEpoch] = mutable.Map.empty
   val partitionsBeingReassigned: mutable.Map[TopicAndPartition, ReassignedPartitionsContext] = new mutable.HashMap
   val partitionsUndergoingPreferredReplicaElection: mutable.Set[TopicAndPartition] = new mutable.HashSet
+  var brokerSessionIds: Map[Int, Long] = Map.empty
 
   private var liveBrokersUnderlying: Set[Broker] = Set.empty
   private var liveBrokerIdsUnderlying: Set[Int] = Set.empty
@@ -1196,12 +1197,14 @@ class KafkaController(val config: KafkaConfig, zkUtils: ZkUtils, val brokerState
       if (!isActive) return
       ControllerStats.leaderElectionTimer.time {
         try {
-          val curBrokers = currentBrokerList.map(_.toInt).toSet.flatMap(zkUtils.getBrokerInfo)
+          val curBrokersWithStat = currentBrokerList.map(_.toInt).toSet.flatMap(zkUtils.getBrokerInfoWithStat)
+          val curBrokers = curBrokersWithStat.map(_._1)
           val curBrokerIds = curBrokers.map(_.id)
           val liveOrShuttingDownBrokerIds = controllerContext.liveOrShuttingDownBrokerIds
           val newBrokerIds = curBrokerIds -- liveOrShuttingDownBrokerIds
           val deadBrokerIds = liveOrShuttingDownBrokerIds -- curBrokerIds
           val newBrokers = curBrokers.filter(broker => newBrokerIds(broker.id))
+          controllerContext.brokerSessionIds = curBrokersWithStat.map { case (broker, stat) => broker.id -> stat.getEphemeralOwner }.toMap
           controllerContext.liveBrokers = curBrokers
           val newBrokerIdsSorted = newBrokerIds.toSeq.sorted
           val deadBrokerIdsSorted = deadBrokerIds.toSeq.sorted

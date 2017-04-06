@@ -34,6 +34,7 @@ import java.util.Set;
 public class LeaderAndIsrRequest extends AbstractRequest {
     private static final String CONTROLLER_ID_KEY_NAME = "controller_id";
     private static final String CONTROLLER_EPOCH_KEY_NAME = "controller_epoch";
+    private static final String SESSION_ID_KEY_NAME = "sessionId";
     private static final String PARTITION_STATES_KEY_NAME = "partition_states";
     private static final String LIVE_LEADERS_KEY_NAME = "live_leaders";
 
@@ -54,21 +55,23 @@ public class LeaderAndIsrRequest extends AbstractRequest {
     public static class Builder extends AbstractRequest.Builder<LeaderAndIsrRequest> {
         private final int controllerId;
         private final int controllerEpoch;
+        private final long sessionId;
         private final Map<TopicPartition, PartitionState> partitionStates;
         private final Set<Node> liveLeaders;
 
-        public Builder(int controllerId, int controllerEpoch,
+        public Builder(short version, int controllerId, int controllerEpoch, long sessionId,
                        Map<TopicPartition, PartitionState> partitionStates, Set<Node> liveLeaders) {
-            super(ApiKeys.LEADER_AND_ISR);
+            super(ApiKeys.LEADER_AND_ISR, version);
             this.controllerId = controllerId;
             this.controllerEpoch = controllerEpoch;
+            this.sessionId = sessionId;
             this.partitionStates = partitionStates;
             this.liveLeaders = liveLeaders;
         }
 
         @Override
         public LeaderAndIsrRequest build(short version) {
-            return new LeaderAndIsrRequest(controllerId, controllerEpoch, partitionStates, liveLeaders, version);
+            return new LeaderAndIsrRequest(controllerId, controllerEpoch, sessionId, partitionStates, liveLeaders, version);
         }
 
         @Override
@@ -77,6 +80,7 @@ public class LeaderAndIsrRequest extends AbstractRequest {
             bld.append("(type=LeaderAndIsRequest")
                 .append(", controllerId=").append(controllerId)
                 .append(", controllerEpoch=").append(controllerEpoch)
+                .append(", sessionId=").append(sessionId)
                 .append(", partitionStates=").append(partitionStates)
                 .append(", liveLeaders=(").append(Utils.join(liveLeaders, ", ")).append(")")
                 .append(")");
@@ -86,14 +90,16 @@ public class LeaderAndIsrRequest extends AbstractRequest {
 
     private final int controllerId;
     private final int controllerEpoch;
+    private final long sessionId;
     private final Map<TopicPartition, PartitionState> partitionStates;
     private final Set<Node> liveLeaders;
 
-    private LeaderAndIsrRequest(int controllerId, int controllerEpoch, Map<TopicPartition, PartitionState> partitionStates,
-                               Set<Node> liveLeaders, short version) {
+    private LeaderAndIsrRequest(int controllerId, int controllerEpoch, long sessionId, Map<TopicPartition, PartitionState> partitionStates,
+                                Set<Node> liveLeaders, short version) {
         super(version);
         this.controllerId = controllerId;
         this.controllerEpoch = controllerEpoch;
+        this.sessionId = sessionId;
         this.partitionStates = partitionStates;
         this.liveLeaders = liveLeaders;
     }
@@ -138,6 +144,11 @@ public class LeaderAndIsrRequest extends AbstractRequest {
 
         controllerId = struct.getInt(CONTROLLER_ID_KEY_NAME);
         controllerEpoch = struct.getInt(CONTROLLER_EPOCH_KEY_NAME);
+        if (struct.hasField(SESSION_ID_KEY_NAME)) { // V1
+            sessionId = struct.getLong(SESSION_ID_KEY_NAME);
+        } else {
+            sessionId = -1;
+        }
         this.partitionStates = partitionStates;
         this.liveLeaders = leaders;
     }
@@ -148,6 +159,9 @@ public class LeaderAndIsrRequest extends AbstractRequest {
         Struct struct = new Struct(ApiKeys.LEADER_AND_ISR.requestSchema(version));
         struct.set(CONTROLLER_ID_KEY_NAME, controllerId);
         struct.set(CONTROLLER_EPOCH_KEY_NAME, controllerEpoch);
+        if (version >= 1) {
+            struct.set(SESSION_ID_KEY_NAME, sessionId);
+        }
 
         List<Struct> partitionStatesData = new ArrayList<>(partitionStates.size());
         for (Map.Entry<TopicPartition, PartitionState> entry : partitionStates.entrySet()) {
@@ -187,6 +201,8 @@ public class LeaderAndIsrRequest extends AbstractRequest {
 
         short versionId = version();
         switch (versionId) {
+            case 1:
+                return new LeaderAndIsrResponse(Errors.NONE, responses);
             case 0:
                 return new LeaderAndIsrResponse(Errors.NONE, responses);
             default:
@@ -201,6 +217,10 @@ public class LeaderAndIsrRequest extends AbstractRequest {
 
     public int controllerEpoch() {
         return controllerEpoch;
+    }
+
+    public long sessionId() {
+        return sessionId;
     }
 
     public Map<TopicPartition, PartitionState> partitionStates() {

@@ -33,6 +33,7 @@ import java.util.Set;
 public class StopReplicaRequest extends AbstractRequest {
     private static final String CONTROLLER_ID_KEY_NAME = "controller_id";
     private static final String CONTROLLER_EPOCH_KEY_NAME = "controller_epoch";
+    private static final String SESSION_ID_KEY_NAME = "sessionId";
     private static final String DELETE_PARTITIONS_KEY_NAME = "delete_partitions";
     private static final String PARTITIONS_KEY_NAME = "partitions";
     private static final String TOPIC_KEY_NAME = "topic";
@@ -41,21 +42,23 @@ public class StopReplicaRequest extends AbstractRequest {
     public static class Builder extends AbstractRequest.Builder<StopReplicaRequest> {
         private final int controllerId;
         private final int controllerEpoch;
+        private final long sessionId;
         private final boolean deletePartitions;
         private final Set<TopicPartition> partitions;
 
-        public Builder(int controllerId, int controllerEpoch, boolean deletePartitions,
+        public Builder(short version, int controllerId, int controllerEpoch, long sessionId, boolean deletePartitions,
                        Set<TopicPartition> partitions) {
-            super(ApiKeys.STOP_REPLICA);
+            super(ApiKeys.STOP_REPLICA, version);
             this.controllerId = controllerId;
             this.controllerEpoch = controllerEpoch;
+            this.sessionId = sessionId;
             this.deletePartitions = deletePartitions;
             this.partitions = partitions;
         }
 
         @Override
         public StopReplicaRequest build(short version) {
-            return new StopReplicaRequest(controllerId, controllerEpoch,
+            return new StopReplicaRequest(controllerId, controllerEpoch, sessionId,
                     deletePartitions, partitions, version);
         }
 
@@ -65,6 +68,7 @@ public class StopReplicaRequest extends AbstractRequest {
             bld.append("(type=StopReplicaRequest").
                 append(", controllerId=").append(controllerId).
                 append(", controllerEpoch=").append(controllerEpoch).
+                append(", sessionId=").append(sessionId).
                 append(", deletePartitions=").append(deletePartitions).
                 append(", partitions=").append(Utils.join(partitions, ",")).
                 append(")");
@@ -74,14 +78,16 @@ public class StopReplicaRequest extends AbstractRequest {
 
     private final int controllerId;
     private final int controllerEpoch;
+    private final long sessionId;
     private final boolean deletePartitions;
     private final Set<TopicPartition> partitions;
 
-    private StopReplicaRequest(int controllerId, int controllerEpoch, boolean deletePartitions,
+    private StopReplicaRequest(int controllerId, int controllerEpoch, long sessionId, boolean deletePartitions,
                                Set<TopicPartition> partitions, short version) {
         super(version);
         this.controllerId = controllerId;
         this.controllerEpoch = controllerEpoch;
+        this.sessionId = sessionId;
         this.deletePartitions = deletePartitions;
         this.partitions = partitions;
     }
@@ -99,6 +105,11 @@ public class StopReplicaRequest extends AbstractRequest {
 
         controllerId = struct.getInt(CONTROLLER_ID_KEY_NAME);
         controllerEpoch = struct.getInt(CONTROLLER_EPOCH_KEY_NAME);
+        if (struct.hasField(SESSION_ID_KEY_NAME)) { // V1
+            sessionId = struct.getLong(SESSION_ID_KEY_NAME);
+        } else {
+            sessionId = -1;
+        }
         deletePartitions = struct.getBoolean(DELETE_PARTITIONS_KEY_NAME);
     }
 
@@ -111,6 +122,8 @@ public class StopReplicaRequest extends AbstractRequest {
 
         short versionId = version();
         switch (versionId) {
+            case 1:
+                return new StopReplicaResponse(Errors.NONE, responses);
             case 0:
                 return new StopReplicaResponse(Errors.NONE, responses);
             default:
@@ -127,6 +140,10 @@ public class StopReplicaRequest extends AbstractRequest {
         return controllerEpoch;
     }
 
+    public long sessionId() {
+        return sessionId;
+    }
+
     public boolean deletePartitions() {
         return deletePartitions;
     }
@@ -141,10 +158,14 @@ public class StopReplicaRequest extends AbstractRequest {
 
     @Override
     protected Struct toStruct() {
-        Struct struct = new Struct(ApiKeys.STOP_REPLICA.requestSchema(version()));
+        short version = version();
+        Struct struct = new Struct(ApiKeys.STOP_REPLICA.requestSchema(version));
 
         struct.set(CONTROLLER_ID_KEY_NAME, controllerId);
         struct.set(CONTROLLER_EPOCH_KEY_NAME, controllerEpoch);
+        if (version >= 1) {
+            struct.set(SESSION_ID_KEY_NAME, sessionId);
+        }
         struct.set(DELETE_PARTITIONS_KEY_NAME, deletePartitions);
 
         List<Struct> partitionDatas = new ArrayList<>(partitions.size());

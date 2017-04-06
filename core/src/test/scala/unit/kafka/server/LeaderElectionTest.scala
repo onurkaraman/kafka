@@ -142,13 +142,14 @@ class LeaderElectionTest extends ZooKeeperTestHarness {
     controllerChannelManager.startup()
     try {
       val staleControllerEpoch = 0
+      val sessionId = servers.last.zkUtils.zkConnection.getZookeeper.getSessionId
       val partitionStates = Map(
         new TopicPartition(topic, partitionId) -> new PartitionState(2, brokerId2, LeaderAndIsr.initialLeaderEpoch,
           Seq(brokerId1, brokerId2).map(Integer.valueOf).asJava, LeaderAndIsr.initialZKVersion,
           Set(0, 1).map(Integer.valueOf).asJava)
       )
-      val requestBuilder = new LeaderAndIsrRequest.Builder(
-          controllerId, staleControllerEpoch, partitionStates.asJava, nodes.toSet.asJava)
+      val requestBuilder = new LeaderAndIsrRequest.Builder(ApiKeys.LEADER_AND_ISR.latestVersion(),
+          controllerId, staleControllerEpoch, sessionId, partitionStates.asJava, nodes.toSet.asJava)
 
       controllerChannelManager.sendRequest(brokerId2, ApiKeys.LEADER_AND_ISR, requestBuilder,
         staleControllerEpochCallback)
