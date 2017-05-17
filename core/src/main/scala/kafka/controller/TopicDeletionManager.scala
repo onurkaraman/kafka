@@ -60,7 +60,7 @@ import scala.collection.{Set, mutable}
 class TopicDeletionManager(controller: KafkaController, eventManager: ControllerEventManager) extends Logging {
   this.logIdent = "[Topic Deletion Manager " + controller.config.brokerId + "], "
   val controllerContext = controller.controllerContext
-  val partitionStateMachine = controller.partitionStateMachine
+  val clusterStateMachine = controller.clusterStateMachine
   val replicaStateMachine = controller.replicaStateMachine
   val isDeleteTopicEnabled = controller.config.deleteTopicEnable
   val topicsToBeDeleted = mutable.Set.empty[String]
@@ -241,8 +241,8 @@ class TopicDeletionManager(controller: KafkaController, eventManager: Controller
     replicaStateMachine.handleStateChanges(replicasForDeletedTopic, NonExistentReplica)
     val partitionsForDeletedTopic = controllerContext.partitionsForTopic(topic)
     // move respective partition to OfflinePartition and NonExistentPartition state
-    partitionStateMachine.handleStateChanges(partitionsForDeletedTopic, OfflinePartition)
-    partitionStateMachine.handleStateChanges(partitionsForDeletedTopic, NonExistentPartition)
+    partitionsForDeletedTopic.foreach(partition => clusterStateMachine.handlePartitionStateChange(partition, OfflinePartition))
+    partitionsForDeletedTopic.foreach(partition => clusterStateMachine.handlePartitionStateChange(partition, NonExistentPartition))
     topicsToBeDeleted -= topic
     partitionsToBeDeleted.retain(_.topic != topic)
     val zkUtils = controllerContext.zkUtils

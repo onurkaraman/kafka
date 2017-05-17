@@ -70,9 +70,9 @@ class ControllerFailoverTest extends KafkaServerTestHarness with Logging {
     // Create topic with one partition
     kafka.admin.AdminUtils.createTopic(controller.zkUtils, topic, 1, 1)
     val topicPartition = TopicAndPartition("topic1", 0)
-    var partitions = controller.kafkaController.partitionStateMachine.partitionsInState(OnlinePartition)
+    var partitions = controller.kafkaController.clusterStateMachine.partitionsInStates(Set(OnlinePartition))
     while (!partitions.contains(topicPartition)) {
-      partitions = controller.kafkaController.partitionStateMachine.partitionsInState(OnlinePartition)
+      partitions = controller.kafkaController.clusterStateMachine.partitionsInStates(Set(OnlinePartition))
       Thread.sleep(100)
     }
     // Replace channel manager with our mock manager
