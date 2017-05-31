@@ -175,7 +175,7 @@ class TopicDeletionManager(controller: KafkaController, eventManager: Controller
 
   private def isTopicDeletionInProgress(topic: String): Boolean = {
     if(isDeleteTopicEnabled) {
-      controller.replicaStateMachine.isAtLeastOneReplicaInDeletionStartedState(topic)
+      isAnyReplicaInState(topic, ReplicaDeletionStarted)
     } else
       false
   }
@@ -226,7 +226,7 @@ class TopicDeletionManager(controller: KafkaController, eventManager: Controller
    */
   private def markTopicForDeletionRetry(topic: String) {
     // reset replica states from ReplicaDeletionIneligible to OfflineReplica
-    val failedReplicas = controller.replicaStateMachine.replicasInState(topic, ReplicaDeletionIneligible)
+    val failedReplicas = clusterStateMachine.replicasInStates(Set(ReplicaDeletionIneligible)).filter(_.topic == topic)
     info("Retrying delete topic for topic %s since replicas %s were not successfully deleted"
       .format(topic, failedReplicas.mkString(",")))
     controller.replicaStateMachine.handleStateChanges(failedReplicas, OfflineReplica)
@@ -236,7 +236,7 @@ class TopicDeletionManager(controller: KafkaController, eventManager: Controller
     // deregister partition change listener on the deleted topic. This is to prevent the partition change listener
     // firing before the new topic listener when a deleted topic gets auto created
     controller.deregisterPartitionModificationsListener(topic)
-    val replicasForDeletedTopic = controller.replicaStateMachine.replicasInState(topic, ReplicaDeletionSuccessful)
+    val replicasForDeletedTopic = clusterStateMachine.replicasInStates(Set(ReplicaDeletionSuccessful)).filter(_.topic == topic)
     // controller will remove this replica from the state machine as well as its partition assignment cache
     replicaStateMachine.handleStateChanges(replicasForDeletedTopic, NonExistentReplica)
     val partitionsForDeletedTopic = controllerContext.partitionsForTopic(topic)
@@ -290,7 +290,7 @@ class TopicDeletionManager(controller: KafkaController, eventManager: Controller
     replicasForTopicsToBeDeleted.groupBy(_.topic).keys.foreach { topic =>
       val aliveReplicasForTopic = controllerContext.allLiveReplicas().filter(p => p.topic == topic)
       val deadReplicasForTopic = replicasForTopicsToBeDeleted -- aliveReplicasForTopic
-      val successfullyDeletedReplicas = controller.replicaStateMachine.replicasInState(topic, ReplicaDeletionSuccessful)
+      val successfullyDeletedReplicas = clusterStateMachine.replicasInStates(Set(ReplicaDeletionSuccessful)).filter(_.topic == topic)
       val replicasForDeletionRetry = aliveReplicasForTopic -- successfullyDeletedReplicas
       // move dead replicas directly to failed state
       replicaStateMachine.handleStateChanges(deadReplicasForTopic, ReplicaDeletionIneligible)
@@ -332,14 +332,14 @@ class TopicDeletionManager(controller: KafkaController, eventManager: Controller
 
     topicsQueuedForDeletion.foreach { topic =>
       // if all replicas are marked as deleted successfully, then topic deletion is done
-      if(controller.replicaStateMachine.areAllReplicasForTopicDeleted(topic)) {
+      if(areAllReplicasForTopicDeleted(topic)) {
         // clear up all state for this topic from controller cache and zookeeper
         completeDeleteTopic(topic)
         info("Deletion of topic %s successfully completed".format(topic))
       } else {
-        if(controller.replicaStateMachine.isAtLeastOneReplicaInDeletionStartedState(topic)) {
+        if(isAnyReplicaInState(topic, ReplicaDeletionStarted)) {
           // ignore since topic deletion is in progress
-          val replicasInDeletionStartedState = controller.replicaStateMachine.replicasInState(topic, ReplicaDeletionStarted)
+          val replicasInDeletionStartedState = clusterStateMachine.replicasInStates(Set(ReplicaDeletionStarted)).filter(_.topic == topic)
           val replicaIds = replicasInDeletionStartedState.map(_.replica)
           val partitions = replicasInDeletionStartedState.map(r => TopicAndPartition(r.topic, r.partition))
           info("Deletion for replicas %s for partition %s of topic %s in progress".format(replicaIds.mkString(","),
@@ -348,7 +348,7 @@ class TopicDeletionManager(controller: KafkaController, eventManager: Controller
           // if you come here, then no replica is in TopicDeletionStarted and all replicas are not in
           // TopicDeletionSuccessful. That means, that either given topic haven't initiated deletion
           // or there is at least one failed replica (which means topic deletion should be retried).
-          if(controller.replicaStateMachine.isAnyReplicaInState(topic, ReplicaDeletionIneligible)) {
+          if(isAnyReplicaInState(topic, ReplicaDeletionIneligible)) {
             // mark topic for deletion retry
             markTopicForDeletionRetry(topic)
           }
@@ -363,5 +363,17 @@ class TopicDeletionManager(controller: KafkaController, eventManager: Controller
         info("Not retrying deletion of topic %s at this time since it is marked ineligible for deletion".format(topic))
       }
     }
+  }
+
+  private def areAllReplicasForTopicDeleted(topic: String): Boolean = {
+    val replicasForTopic = controller.controllerContext.replicasForTopic(topic)
+    val replicaStatesForTopic = replicasForTopic.map(r => (r, clusterStateMachine.currentReplicaState(r))).toMap
+    debug("Are all replicas for topic %s deleted %s".format(topic, replicaStatesForTopic))
+    replicaStatesForTopic.forall(_._2 == ReplicaDeletionSuccessful)
+  }
+
+  def isAnyReplicaInState(topic: String, state: ReplicaState): Boolean = {
+    val replicas = controller.controllerContext.replicasForTopic(topic)
+    replicas.exists(replica => clusterStateMachine.currentReplicaState(replica) == state)
   }
 }

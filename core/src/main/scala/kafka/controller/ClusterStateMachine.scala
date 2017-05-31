@@ -7,14 +7,6 @@ import scala.collection.{Map, Set, mutable}
 class ClusterStateMachine {
   private val partitionState: mutable.Map[TopicAndPartition, PartitionState] = mutable.Map.empty
   private val replicaState: mutable.Map[PartitionAndReplica, ReplicaState] = mutable.Map.empty
-  private val validPreviousReplicaStates: Map[ReplicaState, Set[ReplicaState]] =
-    Map(NewReplica -> Set(NonExistentReplica),
-      OnlineReplica -> Set(NewReplica, OnlineReplica, OfflineReplica, ReplicaDeletionIneligible),
-      OfflineReplica -> Set(NewReplica, OnlineReplica, OfflineReplica, ReplicaDeletionIneligible),
-      ReplicaDeletionStarted -> Set(OfflineReplica),
-      ReplicaDeletionSuccessful -> Set(ReplicaDeletionStarted),
-      ReplicaDeletionIneligible -> Set(ReplicaDeletionStarted),
-      NonExistentReplica -> Set(ReplicaDeletionSuccessful))
 
   def initPartitionState(initialPartitionState: Map[TopicAndPartition, PartitionState]): Unit = {
     partitionState ++= initialPartitionState
@@ -55,9 +47,9 @@ class ClusterStateMachine {
   }
 
   private def assertValidReplicaStateTransition(partitionAndReplica: PartitionAndReplica, targetState: ReplicaState): Unit = {
-    if (!validPreviousReplicaStates(targetState).contains(replicaState(partitionAndReplica)))
+    if (!targetState.validPreviousStates.contains(replicaState(partitionAndReplica)))
       throw new IllegalStateException("Replica %s should be in the %s states before moving to %s state"
-        .format(partitionAndReplica, validPreviousReplicaStates(targetState).mkString(","), targetState) + ". Instead it is in %s state"
+        .format(partitionAndReplica, targetState.validPreviousStates.mkString(","), targetState) + ". Instead it is in %s state"
         .format(replicaState(partitionAndReplica)))
   }
 }
@@ -85,4 +77,44 @@ case object OfflinePartition extends PartitionState {
 case object NonExistentPartition extends PartitionState {
   val state: Byte = 3
   val validPreviousStates: Set[PartitionState] = Set(OfflinePartition)
+}
+
+sealed trait ReplicaState {
+  def state: Byte
+  def validPreviousStates: Set[ReplicaState]
+}
+
+case object NewReplica extends ReplicaState {
+  val state: Byte = 1
+  val validPreviousStates: Set[ReplicaState] = Set(NonExistentReplica)
+}
+
+case object OnlineReplica extends ReplicaState {
+  val state: Byte = 2
+  val validPreviousStates: Set[ReplicaState] = Set(NewReplica, OnlineReplica, OfflineReplica, ReplicaDeletionIneligible)
+}
+
+case object OfflineReplica extends ReplicaState {
+  val state: Byte = 3
+  val validPreviousStates: Set[ReplicaState] = Set(NewReplica, OnlineReplica, OfflineReplica, ReplicaDeletionIneligible)
+}
+
+case object ReplicaDeletionStarted extends ReplicaState {
+  val state: Byte = 4
+  val validPreviousStates: Set[ReplicaState] = Set(OfflineReplica)
+}
+
+case object ReplicaDeletionSuccessful extends ReplicaState {
+  val state: Byte = 5
+  val validPreviousStates: Set[ReplicaState] = Set(ReplicaDeletionStarted)
+}
+
+case object ReplicaDeletionIneligible extends ReplicaState {
+  val state: Byte = 6
+  val validPreviousStates: Set[ReplicaState] = Set(ReplicaDeletionStarted)
+}
+
+case object NonExistentReplica extends ReplicaState {
+  val state: Byte = 7
+  val validPreviousStates: Set[ReplicaState] = Set(ReplicaDeletionSuccessful)
 }

@@ -266,7 +266,6 @@ class KafkaController(val config: KafkaConfig, zkUtils: ZkUtils, val brokerState
     sendUpdateMetadataRequest(controllerContext.liveOrShuttingDownBrokerIds.toSeq)
 
     initializeClusterStateMachine()
-    replicaStateMachine.startup()
 
     // register the partition change listeners for all existing topics on failover
     controllerContext.allTopics.foreach(topic => registerPartitionModificationsListener(topic))
@@ -348,8 +347,6 @@ class KafkaController(val config: KafkaConfig, zkUtils: ZkUtils, val brokerState
     deregisterTopicChangeListener()
     partitionModificationsListeners.keys.foreach(deregisterPartitionModificationsListener)
     deregisterTopicDeletionListener()
-    // shutdown replica state machine
-    replicaStateMachine.shutdown()
     clusterStateMachine.clear()
     deregisterBrokerChangeListener()
 

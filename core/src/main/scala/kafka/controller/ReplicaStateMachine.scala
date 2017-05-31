@@ -240,32 +240,6 @@ class ReplicaStateMachine(controller: KafkaController) extends Logging {
     }
   }
 
-  def areAllReplicasForTopicDeleted(topic: String): Boolean = {
-    val replicasForTopic = controller.controllerContext.replicasForTopic(topic)
-    val replicaStatesForTopic = replicasForTopic.map(r => (r, replicaState(r))).toMap
-    debug("Are all replicas for topic %s deleted %s".format(topic, replicaStatesForTopic))
-    replicaStatesForTopic.forall(_._2 == ReplicaDeletionSuccessful)
-  }
-
-  def isAtLeastOneReplicaInDeletionStartedState(topic: String): Boolean = {
-    val replicasForTopic = controller.controllerContext.replicasForTopic(topic)
-    val replicaStatesForTopic = replicasForTopic.map(r => (r, replicaState(r))).toMap
-    replicaStatesForTopic.foldLeft(false)((deletionState, r) => deletionState || r._2 == ReplicaDeletionStarted)
-  }
-
-  def replicasInState(topic: String, state: ReplicaState): Set[PartitionAndReplica] = {
-    replicaState.filter(r => r._1.topic.equals(topic) && r._2 == state).keySet
-  }
-
-  def isAnyReplicaInState(topic: String, state: ReplicaState): Boolean = {
-    replicaState.exists(r => r._1.topic.equals(topic) && r._2 == state)
-  }
-
-  def replicasInDeletionStates(topic: String): Set[PartitionAndReplica] = {
-    val deletionStates = Set[ReplicaState](ReplicaDeletionStarted, ReplicaDeletionSuccessful, ReplicaDeletionIneligible)
-    replicaState.filter(r => r._1.topic.equals(topic) && deletionStates.contains(r._2)).keySet
-  }
-
   private def assertValidTransition(partitionAndReplica: PartitionAndReplica, targetState: ReplicaState): Unit = {
     assert(targetState.validPreviousStates.contains(replicaState(partitionAndReplica)),
       "Replica %s should be in the %s states before moving to %s state"
@@ -293,48 +267,4 @@ class ReplicaStateMachine(controller: KafkaController) extends Logging {
       }
     }
   }
-
-  def partitionsAssignedToBroker(topics: Seq[String], brokerId: Int):Seq[TopicAndPartition] = {
-    controllerContext.partitionReplicaAssignment.filter(_._2.contains(brokerId)).keySet.toSeq
-  }
-}
-
-sealed trait ReplicaState {
-  def state: Byte
-  def validPreviousStates: Set[ReplicaState]
-}
-
-case object NewReplica extends ReplicaState {
-  val state: Byte = 1
-  val validPreviousStates: Set[ReplicaState] = Set(NonExistentReplica)
-}
-
-case object OnlineReplica extends ReplicaState {
-  val state: Byte = 2
-  val validPreviousStates: Set[ReplicaState] = Set(NewReplica, OnlineReplica, OfflineReplica, ReplicaDeletionIneligible)
-}
-
-case object OfflineReplica extends ReplicaState {
-  val state: Byte = 3
-  val validPreviousStates: Set[ReplicaState] = Set(NewReplica, OnlineReplica, OfflineReplica, ReplicaDeletionIneligible)
-}
-
-case object ReplicaDeletionStarted extends ReplicaState {
-  val state: Byte = 4
-  val validPreviousStates: Set[ReplicaState] = Set(OfflineReplica)
-}
-
-case object ReplicaDeletionSuccessful extends ReplicaState {
-  val state: Byte = 5
-  val validPreviousStates: Set[ReplicaState] = Set(ReplicaDeletionStarted)
-}
-
-case object ReplicaDeletionIneligible extends ReplicaState {
-  val state: Byte = 6
-  val validPreviousStates: Set[ReplicaState] = Set(ReplicaDeletionStarted)
-}
-
-case object NonExistentReplica extends ReplicaState {
-  val state: Byte = 7
-  val validPreviousStates: Set[ReplicaState] = Set(ReplicaDeletionSuccessful)
 }
