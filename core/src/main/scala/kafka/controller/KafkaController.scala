@@ -831,7 +831,7 @@ class KafkaController(val config: KafkaConfig, zkUtils: ZkUtils, val brokerState
     // send stop replica command to the old replicas
     replicaStateMachine.handleStateChanges(replicasToBeDeleted, ReplicaDeletionStarted)
     // TODO: Eventually partition reassignment could use a callback that does retries if deletion failed
-    replicaStateMachine.handleStateChanges(replicasToBeDeleted, ReplicaDeletionSuccessful)
+    replicasToBeDeleted.foreach(replica => clusterStateMachine.handleReplicaStateChange(replica, ReplicaDeletionSuccessful))
     replicaStateMachine.handleStateChanges(replicasToBeDeleted, NonExistentReplica)
   }
 

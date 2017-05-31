@@ -144,7 +144,7 @@ class TopicDeletionManager(controller: KafkaController, eventManager: Controller
         val topics = replicasThatFailedToDelete.map(_.topic)
         debug("Deletion failed for replicas %s. Halting deletion for topics %s"
           .format(replicasThatFailedToDelete.mkString(","), topics))
-        controller.replicaStateMachine.handleStateChanges(replicasThatFailedToDelete, ReplicaDeletionIneligible)
+        replicasThatFailedToDelete.foreach(replica => clusterStateMachine.handleReplicaStateChange(replica, ReplicaDeletionIneligible))
         markTopicIneligibleForDeletion(topics)
         resumeDeletions()
       }
@@ -203,7 +203,7 @@ class TopicDeletionManager(controller: KafkaController, eventManager: Controller
   def completeReplicaDeletion(replicas: Set[PartitionAndReplica]) {
     val successfullyDeletedReplicas = replicas.filter(r => isTopicQueuedUpForDeletion(r.topic))
     debug("Deletion successfully completed for replicas %s".format(successfullyDeletedReplicas.mkString(",")))
-    controller.replicaStateMachine.handleStateChanges(successfullyDeletedReplicas, ReplicaDeletionSuccessful)
+    successfullyDeletedReplicas.foreach(replica => clusterStateMachine.handleReplicaStateChange(replica, ReplicaDeletionSuccessful))
     resumeDeletions()
   }
 
@@ -293,7 +293,7 @@ class TopicDeletionManager(controller: KafkaController, eventManager: Controller
       val successfullyDeletedReplicas = clusterStateMachine.replicasInStates(Set(ReplicaDeletionSuccessful)).filter(_.topic == topic)
       val replicasForDeletionRetry = aliveReplicasForTopic -- successfullyDeletedReplicas
       // move dead replicas directly to failed state
-      replicaStateMachine.handleStateChanges(deadReplicasForTopic, ReplicaDeletionIneligible)
+      deadReplicasForTopic.foreach(replica => clusterStateMachine.handleReplicaStateChange(replica, ReplicaDeletionIneligible))
       // send stop replica to all followers that are not in the OfflineReplica state so they stop sending fetch requests to the leader
       replicaStateMachine.handleStateChanges(replicasForDeletionRetry, OfflineReplica)
       debug("Deletion started for replicas %s".format(replicasForDeletionRetry.mkString(",")))
