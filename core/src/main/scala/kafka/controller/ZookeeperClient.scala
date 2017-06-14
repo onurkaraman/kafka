@@ -22,6 +22,7 @@ import java.util.concurrent.{ArrayBlockingQueue, ConcurrentHashMap, CountDownLat
 
 import kafka.utils.CoreUtils.{inLock, inReadLock, inWriteLock}
 import org.apache.zookeeper.AsyncCallback.{ACLCallback, Children2Callback, DataCallback, StatCallback, StringCallback, VoidCallback}
+import org.apache.zookeeper.KeeperException.SessionExpiredException
 import org.apache.zookeeper.Watcher.Event.EventType
 import org.apache.zookeeper.ZooKeeper.States
 import org.apache.zookeeper.data.{ACL, Stat}
@@ -35,6 +36,11 @@ class ZookeeperClient(connectString: String, sessionTimeout: Int) {
   private val zNodeChildChangeHandlers = new ConcurrentHashMap[String, ZNodeChildChangeHandler]()
   private var stateChangeHandlerOpt: Option[StateChangeHandler] = None
   private var zooKeeper = new ZooKeeper(connectString, sessionTimeout, ZookeeperClientWatcher)
+  private val sessionContext = new ThreadLocal[Int] {
+    val initialSessionContext = 0
+    override def initialValue(): Int = initialSessionContext
+  }
+  private var session = sessionContext.initialSessionContext
 
   def handle(request: AsyncRequest): AsyncResponse = {
     batch(Seq(request)).head
@@ -45,6 +51,7 @@ class ZookeeperClient(connectString: String, sessionTimeout: Int) {
     val countDownLatch = new CountDownLatch(requests.size)
     val responseQueue = new ArrayBlockingQueue[AsyncResponse](requests.size)
     inReadLock(zooKeeperReadWriteLock) {
+      assertSession()
       requests.foreach {
         case CreateRequest(path, data, acl, createMode, ctx) => zooKeeper.create(path, data, acl.asJava, createMode, new StringCallback {
           override def processResult(rc: Int, path: String, ctx: Any, name: String) = {
@@ -138,6 +145,7 @@ class ZookeeperClient(connectString: String, sessionTimeout: Int) {
       zNodeChangeHandlers.clear()
       zNodeChildChangeHandlers.clear()
       zooKeeper = new ZooKeeper(connectString, sessionTimeout, ZookeeperClientWatcher)
+      session += 1
     }
   }
 
@@ -145,6 +153,13 @@ class ZookeeperClient(connectString: String, sessionTimeout: Int) {
     zNodeChangeHandlers.clear()
     zNodeChildChangeHandlers.clear()
     zooKeeper.close()
+  }
+
+  private def assertSession(): Unit = {
+    if (sessionContext.get() != session) {
+      sessionContext.set(session)
+      throw new SessionExpiredException()
+    }
   }
 
   private object ZookeeperClientWatcher extends Watcher {
