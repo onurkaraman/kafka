@@ -17,10 +17,10 @@
 
 package kafka.controller
 
-import java.util.concurrent.locks.ReentrantReadWriteLock
+import java.util.concurrent.locks.{ReentrantLock, ReentrantReadWriteLock}
 import java.util.concurrent.{ArrayBlockingQueue, ConcurrentHashMap, CountDownLatch}
 
-import kafka.utils.CoreUtils.{inReadLock, inWriteLock}
+import kafka.utils.CoreUtils.{inLock, inReadLock, inWriteLock}
 import org.apache.zookeeper.AsyncCallback.{ACLCallback, Children2Callback, DataCallback, StatCallback, StringCallback, VoidCallback}
 import org.apache.zookeeper.Watcher.Event.EventType
 import org.apache.zookeeper.ZooKeeper.States
@@ -28,7 +28,9 @@ import org.apache.zookeeper.data.{ACL, Stat}
 import org.apache.zookeeper.{CreateMode, WatchedEvent, Watcher, ZooKeeper}
 
 class ZookeeperClient(connectString: String, sessionTimeout: Int) {
-  private val readWriteLock = new ReentrantReadWriteLock()
+  private val zooKeeperReadWriteLock = new ReentrantReadWriteLock()
+  private val isConnectedOrExpiredLock = new ReentrantLock()
+  private val isConnectedOrExpiredCondition = isConnectedOrExpiredLock.newCondition()
   private val zNodeChangeHandlers = new ConcurrentHashMap[String, ZNodeChangeHandler]()
   private val zNodeChildChangeHandlers = new ConcurrentHashMap[String, ZNodeChildChangeHandler]()
   private var stateChangeHandlerOpt: Option[StateChangeHandler] = None
@@ -42,7 +44,7 @@ class ZookeeperClient(connectString: String, sessionTimeout: Int) {
     import scala.collection.JavaConverters._
     val countDownLatch = new CountDownLatch(requests.size)
     val responseQueue = new ArrayBlockingQueue[AsyncResponse](requests.size)
-    inReadLock(readWriteLock) {
+    inReadLock(zooKeeperReadWriteLock) {
       requests.foreach {
         case CreateRequest(path, data, acl, createMode, ctx) => zooKeeper.create(path, data, acl.asJava, createMode, new StringCallback {
           override def processResult(rc: Int, path: String, ctx: Any, name: String) = {
@@ -90,37 +92,48 @@ class ZookeeperClient(connectString: String, sessionTimeout: Int) {
     responseQueue.asScala.toSeq
   }
 
-  def getState(): States = inReadLock(readWriteLock) {
+  def getState: States = inReadLock(zooKeeperReadWriteLock) {
     zooKeeper.getState
   }
 
-  def registerStateChangeHandler(stateChangeHandler: StateChangeHandler): Unit = inWriteLock(readWriteLock) {
+  def waitUntilConnectedOrExpired: Boolean = inReadLock(zooKeeperReadWriteLock) {
+    inLock(isConnectedOrExpiredLock) {
+      var state = zooKeeper.getState
+      while (!state.isConnected && state.isAlive) {
+        isConnectedOrExpiredCondition.await()
+        state = zooKeeper.getState
+      }
+      state.isConnected
+    }
+  }
+
+  def registerStateChangeHandler(stateChangeHandler: StateChangeHandler): Unit = inWriteLock(zooKeeperReadWriteLock) {
     stateChangeHandlerOpt = Option(stateChangeHandler)
   }
 
-  def unregisterStateChangeHandler(): Unit = inWriteLock(readWriteLock) {
+  def unregisterStateChangeHandler(): Unit = inWriteLock(zooKeeperReadWriteLock) {
     stateChangeHandlerOpt = None
   }
 
-  def registerZNodeChangeHandler(zNodeChangeHandler: ZNodeChangeHandler): Unit = inReadLock(readWriteLock) {
+  def registerZNodeChangeHandler(zNodeChangeHandler: ZNodeChangeHandler): Unit = inReadLock(zooKeeperReadWriteLock) {
     zNodeChangeHandlers.put(zNodeChangeHandler.path, zNodeChangeHandler)
     zooKeeper.exists(zNodeChangeHandler.path, true)
   }
 
-  def unregisterZNodeChangeHandler(path: String): Unit = inReadLock(readWriteLock) {
+  def unregisterZNodeChangeHandler(path: String): Unit = inReadLock(zooKeeperReadWriteLock) {
     zNodeChangeHandlers.remove(path)
   }
 
-  def registerZNodeChildChangeHandler(zNodeChildChangeHandler: ZNodeChildChangeHandler): Unit = inReadLock(readWriteLock) {
+  def registerZNodeChildChangeHandler(zNodeChildChangeHandler: ZNodeChildChangeHandler): Unit = inReadLock(zooKeeperReadWriteLock) {
     zNodeChildChangeHandlers.put(zNodeChildChangeHandler.path, zNodeChildChangeHandler)
     zooKeeper.getChildren(zNodeChildChangeHandler.path, true)
   }
 
-  def unregisterZNodeChildChangeHandler(path: String): Unit = inReadLock(readWriteLock) {
+  def unregisterZNodeChildChangeHandler(path: String): Unit = inReadLock(zooKeeperReadWriteLock) {
     zNodeChildChangeHandlers.remove(path)
   }
 
-  def initialize(): Unit = inWriteLock(readWriteLock) {
+  def initialize(): Unit = inWriteLock(zooKeeperReadWriteLock) {
     if (!zooKeeper.getState.isAlive) {
       zNodeChangeHandlers.clear()
       zNodeChildChangeHandlers.clear()
@@ -128,15 +141,18 @@ class ZookeeperClient(connectString: String, sessionTimeout: Int) {
     }
   }
 
-  def close(): Unit = inWriteLock(readWriteLock) {
+  def close(): Unit = inWriteLock(zooKeeperReadWriteLock) {
     zNodeChangeHandlers.clear()
     zNodeChildChangeHandlers.clear()
     zooKeeper.close()
   }
 
   private object ZookeeperClientWatcher extends Watcher {
-    override def process(event: WatchedEvent): Unit = inReadLock(readWriteLock) {
+    override def process(event: WatchedEvent): Unit = inReadLock(zooKeeperReadWriteLock) {
       if (event.getPath == null) {
+        inLock(isConnectedOrExpiredLock) {
+          isConnectedOrExpiredCondition.signalAll()
+        }
         stateChangeHandlerOpt.foreach(_.handleStateChange)
       } else if (event.getType == EventType.NodeCreated) {
         Option(zNodeChangeHandlers.remove(event.getPath)).foreach(_.handleCreation)
