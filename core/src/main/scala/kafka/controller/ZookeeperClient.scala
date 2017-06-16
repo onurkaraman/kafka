@@ -22,7 +22,6 @@ import java.util.concurrent.{ArrayBlockingQueue, ConcurrentHashMap, CountDownLat
 
 import kafka.utils.CoreUtils.{inLock, inReadLock, inWriteLock}
 import org.apache.zookeeper.AsyncCallback.{ACLCallback, Children2Callback, DataCallback, StatCallback, StringCallback, VoidCallback}
-import org.apache.zookeeper.KeeperException.SessionExpiredException
 import org.apache.zookeeper.Watcher.Event.EventType
 import org.apache.zookeeper.ZooKeeper.States
 import org.apache.zookeeper.data.{ACL, Stat}
@@ -36,11 +35,9 @@ class ZookeeperClient(connectString: String, sessionTimeout: Int) {
   private val zNodeChildChangeHandlers = new ConcurrentHashMap[String, ZNodeChildChangeHandler]()
   private var stateChangeHandlerOpt: Option[StateChangeHandler] = None
   private var zooKeeper = new ZooKeeper(connectString, sessionTimeout, ZookeeperClientWatcher)
-  private val sessionContext = new ThreadLocal[Int] {
-    val initialSessionContext = 0
-    override def initialValue(): Int = initialSessionContext
+  private val sessionContext = new ThreadLocal[ZooKeeper] {
+    override def initialValue(): ZooKeeper = zooKeeper
   }
-  private var session = sessionContext.initialSessionContext
 
   def handle(request: AsyncRequest): AsyncResponse = {
     batch(Seq(request)).head
@@ -51,44 +48,43 @@ class ZookeeperClient(connectString: String, sessionTimeout: Int) {
     val countDownLatch = new CountDownLatch(requests.size)
     val responseQueue = new ArrayBlockingQueue[AsyncResponse](requests.size)
     inReadLock(zooKeeperReadWriteLock) {
-      assertSession()
       requests.foreach {
-        case CreateRequest(path, data, acl, createMode, ctx) => zooKeeper.create(path, data, acl.asJava, createMode, new StringCallback {
+        case CreateRequest(path, data, acl, createMode, ctx) => sessionContext.get().create(path, data, acl.asJava, createMode, new StringCallback {
           override def processResult(rc: Int, path: String, ctx: Any, name: String) = {
             responseQueue.add(CreateResponse(rc, path, ctx, name))
             countDownLatch.countDown()
           }}, ctx)
-        case DeleteRequest(path, version, ctx) => zooKeeper.delete(path, version, new VoidCallback {
+        case DeleteRequest(path, version, ctx) => sessionContext.get().delete(path, version, new VoidCallback {
           override def processResult(rc: Int, path: String, ctx: Any) = {
             responseQueue.add(DeleteResponse(rc, path, ctx))
             countDownLatch.countDown()
           }}, ctx)
-        case ExistsRequest(path, ctx) => zooKeeper.exists(path, false, new StatCallback {
+        case ExistsRequest(path, ctx) => sessionContext.get().exists(path, false, new StatCallback {
           override def processResult(rc: Int, path: String, ctx: Any, stat: Stat) = {
             responseQueue.add(ExistsResponse(rc, path, ctx, stat))
             countDownLatch.countDown()
           }}, ctx)
-        case GetDataRequest(path, ctx) => zooKeeper.getData(path, false, new DataCallback {
+        case GetDataRequest(path, ctx) => sessionContext.get().getData(path, false, new DataCallback {
           override def processResult(rc: Int, path: String, ctx: Any, data: Array[Byte], stat: Stat) = {
             responseQueue.add(GetDataResponse(rc, path, ctx, data, stat))
             countDownLatch.countDown()
           }}, ctx)
-        case SetDataRequest(path, data, version, ctx) => zooKeeper.setData(path, data, version, new StatCallback {
+        case SetDataRequest(path, data, version, ctx) => sessionContext.get().setData(path, data, version, new StatCallback {
           override def processResult(rc: Int, path: String, ctx: Any, stat: Stat) = {
             responseQueue.add(SetDataResponse(rc, path, ctx, stat))
             countDownLatch.countDown()
           }}, ctx)
-        case GetACLRequest(path, ctx) => zooKeeper.getACL(path, null, new ACLCallback {
+        case GetACLRequest(path, ctx) => sessionContext.get().getACL(path, null, new ACLCallback {
           override def processResult(rc: Int, path: String, ctx: Any, acl: java.util.List[ACL], stat: Stat): Unit = {
             responseQueue.add(GetACLResponse(rc, path, ctx, Option(acl).map(_.asScala).orNull, stat))
             countDownLatch.countDown()
           }}, ctx)
-        case SetACLRequest(path, acl, version, ctx) => zooKeeper.setACL(path, acl.asJava, version, new StatCallback {
+        case SetACLRequest(path, acl, version, ctx) => sessionContext.get().setACL(path, acl.asJava, version, new StatCallback {
           override def processResult(rc: Int, path: String, ctx: Any, stat: Stat) = {
             responseQueue.add(SetACLResponse(rc, path, ctx, stat))
             countDownLatch.countDown()
           }}, ctx)
-        case GetChildrenRequest(path, ctx) => zooKeeper.getChildren(path, false, new Children2Callback {
+        case GetChildrenRequest(path, ctx) => sessionContext.get().getChildren(path, false, new Children2Callback {
           override def processResult(rc: Int, path: String, ctx: Any, children: java.util.List[String], stat: Stat) = {
             responseQueue.add(GetChildrenResponse(rc, path, ctx, Option(children).map(_.asScala).orNull, stat))
             countDownLatch.countDown()
@@ -100,15 +96,15 @@ class ZookeeperClient(connectString: String, sessionTimeout: Int) {
   }
 
   def getState: States = inReadLock(zooKeeperReadWriteLock) {
-    zooKeeper.getState
+    sessionContext.get().getState
   }
 
   def waitUntilConnectedOrExpired: Boolean = inReadLock(zooKeeperReadWriteLock) {
     inLock(isConnectedOrExpiredLock) {
-      var state = zooKeeper.getState
+      var state = sessionContext.get().getState
       while (!state.isConnected && state.isAlive) {
         isConnectedOrExpiredCondition.await()
-        state = zooKeeper.getState
+        state = sessionContext.get().getState
       }
       state.isConnected
     }
@@ -124,7 +120,7 @@ class ZookeeperClient(connectString: String, sessionTimeout: Int) {
 
   def registerZNodeChangeHandler(zNodeChangeHandler: ZNodeChangeHandler): Unit = inReadLock(zooKeeperReadWriteLock) {
     zNodeChangeHandlers.put(zNodeChangeHandler.path, zNodeChangeHandler)
-    zooKeeper.exists(zNodeChangeHandler.path, true)
+    sessionContext.get().exists(zNodeChangeHandler.path, true)
   }
 
   def unregisterZNodeChangeHandler(path: String): Unit = inReadLock(zooKeeperReadWriteLock) {
@@ -133,7 +129,7 @@ class ZookeeperClient(connectString: String, sessionTimeout: Int) {
 
   def registerZNodeChildChangeHandler(zNodeChildChangeHandler: ZNodeChildChangeHandler): Unit = inReadLock(zooKeeperReadWriteLock) {
     zNodeChildChangeHandlers.put(zNodeChildChangeHandler.path, zNodeChildChangeHandler)
-    zooKeeper.getChildren(zNodeChildChangeHandler.path, true)
+    sessionContext.get().getChildren(zNodeChildChangeHandler.path, true)
   }
 
   def unregisterZNodeChildChangeHandler(path: String): Unit = inReadLock(zooKeeperReadWriteLock) {
@@ -145,21 +141,14 @@ class ZookeeperClient(connectString: String, sessionTimeout: Int) {
       zNodeChangeHandlers.clear()
       zNodeChildChangeHandlers.clear()
       zooKeeper = new ZooKeeper(connectString, sessionTimeout, ZookeeperClientWatcher)
-      session += 1
     }
+    sessionContext.set(zooKeeper)
   }
 
   def close(): Unit = inWriteLock(zooKeeperReadWriteLock) {
     zNodeChangeHandlers.clear()
     zNodeChildChangeHandlers.clear()
     zooKeeper.close()
-  }
-
-  private def assertSession(): Unit = {
-    if (sessionContext.get() != session) {
-      sessionContext.set(session)
-      throw new SessionExpiredException()
-    }
   }
 
   private object ZookeeperClientWatcher extends Watcher {
