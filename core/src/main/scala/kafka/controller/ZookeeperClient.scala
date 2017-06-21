@@ -34,7 +34,7 @@ class ZookeeperClient(connectString: String, sessionTimeout: Int) {
   private val zNodeChangeHandlers = new ConcurrentHashMap[String, ZNodeChangeHandler]()
   private val zNodeChildChangeHandlers = new ConcurrentHashMap[String, ZNodeChildChangeHandler]()
   private var stateChangeHandlerOpt: Option[StateChangeHandler] = None
-  private var zooKeeper = new ZooKeeper(connectString, sessionTimeout, ZookeeperClientWatcher)
+  @volatile private var zooKeeper = new ZooKeeper(connectString, sessionTimeout, ZookeeperClientWatcher)
   private val sessionContext = new ThreadLocal[ZooKeeper] {
     override def initialValue(): ZooKeeper = zooKeeper
   }
