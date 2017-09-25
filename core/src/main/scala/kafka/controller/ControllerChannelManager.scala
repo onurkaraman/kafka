@@ -50,7 +50,7 @@ class ControllerChannelManager(controllerContext: ControllerContext, config: Kaf
   import ControllerChannelManager._
   protected val brokerStateInfo = new HashMap[Int, ControllerBrokerStateInfo]
   private val brokerLock = new Object
-  this.logIdent = "[Channel manager on controller " + config.brokerId + "]: "
+  override val logIdent = "[Channel manager on controller " + config.brokerId + "]: "
 
   newGauge(
     "TotalQueueSize",
@@ -247,7 +247,7 @@ class RequestSendThread(val controllerId: Int,
 
         val response = clientResponse.responseBody
 
-        stateChangeLogger.withControllerEpoch(controllerContext.epoch).trace("Received response " +
+        stateChangeLogger.trace("Received response " +
           s"${response.toString(requestHeader.apiVersion)} for a request sent to broker $brokerNode")
 
         if (callback != null) {
@@ -395,8 +395,6 @@ class ControllerBrokerRequestBatch(controller: KafkaController, stateChangeLogge
 
   def sendRequestsToBrokers(controllerEpoch: Int) {
     try {
-      val stateChangeLog = stateChangeLogger.withControllerEpoch(controllerEpoch)
-
       val leaderAndIsrRequestVersion: Short =
         if (controller.config.interBrokerProtocolVersion >= KAFKA_1_0_IV0) 1
         else 0
@@ -406,7 +404,7 @@ class ControllerBrokerRequestBatch(controller: KafkaController, stateChangeLogge
           val typeOfRequest =
             if (broker == state.basePartitionState.leader) "become-leader"
             else "become-follower"
-          stateChangeLog.trace(s"Sending $typeOfRequest LeaderAndIsr request $state to broker $broker for partition $topicPartition")
+          stateChangeLogger.trace(s"Sending $typeOfRequest LeaderAndIsr request $state to broker $broker for partition $topicPartition")
         }
         val leaderIds = leaderAndIsrPartitionStates.map(_._2.basePartitionState.leader).toSet
         val leaders = controllerContext.liveOrShuttingDownBrokers.filter(b => leaderIds.contains(b.id)).map {
@@ -420,7 +418,7 @@ class ControllerBrokerRequestBatch(controller: KafkaController, stateChangeLogge
       leaderAndIsrRequestMap.clear()
 
       updateMetadataRequestPartitionInfoMap.foreach { case (tp, partitionState) =>
-        stateChangeLog.trace(s"Sending UpdateMetadata request $partitionState to brokers $updateMetadataRequestBrokerSet " +
+        stateChangeLogger.trace(s"Sending UpdateMetadata request $partitionState to brokers $updateMetadataRequestBrokerSet " +
           s"for partition $tp")
       }
 

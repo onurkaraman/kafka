@@ -25,7 +25,7 @@ import org.apache.kafka.common.internals.FatalExitError
 abstract class ShutdownableThread(val name: String, val isInterruptible: Boolean = true)
         extends Thread(name) with Logging {
   this.setDaemon(false)
-  this.logIdent = "[" + name + "]: "
+  override val logIdent = "[" + name + "]: "
   val isRunning: AtomicBoolean = new AtomicBoolean(true)
   private val shutdownLatch = new CountDownLatch(1)
 

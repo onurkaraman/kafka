@@ -81,7 +81,7 @@ class KafkaApis(val requestChannel: RequestChannel,
                 val clusterId: String,
                 time: Time) extends Logging {
 
-  this.logIdent = "[KafkaApi-%d] ".format(brokerId)
+  override val logIdent = "[KafkaApi-%d] ".format(brokerId)
 
   def close() {
     quotas.shutdown()

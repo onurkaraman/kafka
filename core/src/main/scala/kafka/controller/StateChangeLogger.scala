@@ -21,30 +21,18 @@ import kafka.utils.Logging
 import org.apache.log4j
 
 object StateChangeLogger {
-  private val Logger = log4j.Logger.getLogger("state.change.logger")
+  val Logger = log4j.Logger.getLogger("state.change.logger")
 }
 
-/**
- * Simple class that sets `logIdent` appropriately depending on whether the state change logger is being used in the
- * context of the KafkaController or not (e.g. ReplicaManager and MetadataCache log to the state change logger
- * irrespective of whether the broker is the Controller).
- */
-class StateChangeLogger(brokerId: Int, inControllerContext: Boolean, controllerEpoch: Option[Int]) extends Logging {
-
-  if (controllerEpoch.isDefined && !inControllerContext)
-    throw new IllegalArgumentException("Controller epoch should only be defined if inControllerContext is true")
-
+trait StateChangeLogger extends Logging {
   override lazy val logger = StateChangeLogger.Logger
-
-  locally {
-    val prefix = if (inControllerContext) "Controller" else "Broker"
-    val epochEntry = controllerEpoch.fold("")(epoch => s" epoch=$epoch")
-    logIdent = s"[$prefix id=$brokerId$epochEntry] "
-  }
-
-  def withControllerEpoch(controllerEpoch: Int): StateChangeLogger =
-    new StateChangeLogger(brokerId, inControllerContext, Some(controllerEpoch))
-
   def messageWithPrefix(message: String): String = msgWithLogIdent(message)
+}
 
+class ControllerStateChangeLogger(brokerId: Int, controllerContext: ControllerContext) extends StateChangeLogger {
+  override def logIdent = s"[Controller id=$brokerId epoch=${controllerContext.epoch}]"
+}
+
+class BrokerStateChangeLogger(brokerId: Int) extends StateChangeLogger {
+  override val logIdent = s"[Broker id=$brokerId]"
 }

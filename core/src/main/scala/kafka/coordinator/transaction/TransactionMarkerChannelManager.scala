@@ -124,7 +124,7 @@ class TransactionMarkerChannelManager(config: KafkaConfig,
                                       txnMarkerPurgatory: DelayedOperationPurgatory[DelayedTxnMarker],
                                       time: Time) extends InterBrokerSendThread("TxnMarkerSenderThread-" + config.brokerId, networkClient, time) with Logging with KafkaMetricsGroup {
 
-  this.logIdent = "[Transaction Marker Channel Manager " + config.brokerId + "]: "
+  override val logIdent = "[Transaction Marker Channel Manager " + config.brokerId + "]: "
 
   private val interBrokerListenerName: ListenerName = config.interBrokerListenerName
 

@@ -23,7 +23,7 @@ trait Logging {
   val loggerName = this.getClass.getName
   lazy val logger = Logger.getLogger(loggerName)
 
-  protected var logIdent: String = null
+  protected def logIdent: String = null
 
   // Force initialization to register Log4jControllerMBean
   private val log4jController = Log4jController

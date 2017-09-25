@@ -37,7 +37,7 @@ import org.apache.zookeeper.{CreateMode, WatchedEvent, Watcher, ZooKeeper}
   * @param stateChangeHandler state change handler callbacks called by the underlying zookeeper client's EventThread.
   */
 class ZookeeperClient(connectString: String, sessionTimeoutMs: Int, connectionTimeoutMs: Int, stateChangeHandler: StateChangeHandler) extends Logging {
-  this.logIdent = "[ZookeeperClient]: "
+  override val logIdent = "[ZookeeperClient]: "
   private val initializationLock = new ReentrantReadWriteLock()
   private val isConnectedOrExpiredLock = new ReentrantLock()
   private val isConnectedOrExpiredCondition = isConnectedOrExpiredLock.newCondition()

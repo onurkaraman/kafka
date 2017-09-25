@@ -48,7 +48,7 @@ class ReplicaStateMachine(controller: KafkaController, stateChangeLogger: StateC
   private val replicaState: mutable.Map[PartitionAndReplica, ReplicaState] = mutable.Map.empty
   private val brokerRequestBatch = new ControllerBrokerRequestBatch(controller, stateChangeLogger)
 
-  this.logIdent = s"[ReplicaStateMachine controllerId=$controllerId] "
+  override val logIdent = s"[ReplicaStateMachine controllerId=$controllerId] "
 
 
   /**
@@ -134,11 +134,10 @@ class ReplicaStateMachine(controller: KafkaController, stateChangeLogger: StateC
     val replicaId = partitionAndReplica.replica
     val topicAndPartition = TopicAndPartition(topic, partition)
     val currState = replicaState.getOrElseUpdate(partitionAndReplica, NonExistentReplica)
-    val stateChangeLog = stateChangeLogger.withControllerEpoch(controller.epoch)
     try {
 
       def logStateChange(): Unit =
-        stateChangeLog.trace(s"Changed state of replica $replicaId for partition $topicAndPartition from " +
+        stateChangeLogger.trace(s"Changed state of replica $replicaId for partition $topicAndPartition from " +
           s"$currState to $targetState")
 
       val replicaAssignment = controllerContext.partitionReplicaAssignment(topicAndPartition)
@@ -231,7 +230,7 @@ class ReplicaStateMachine(controller: KafkaController, stateChangeLogger: StateC
     }
     catch {
       case t: Throwable =>
-        stateChangeLog.error(s"Initiated state change of replica $replicaId for partition $topicAndPartition from " +
+        stateChangeLogger.error(s"Initiated state change of replica $replicaId for partition $topicAndPartition from " +
           s"$currState to $targetState failed", t)
     }
   }

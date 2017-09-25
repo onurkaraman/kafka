@@ -36,7 +36,7 @@ class KafkaRequestHandler(id: Int,
                           val requestChannel: RequestChannel,
                           apis: KafkaApis,
                           time: Time) extends Runnable with Logging {
-  this.logIdent = "[Kafka Request Handler " + id + " on Broker " + brokerId + "], "
+  override val logIdent = "[Kafka Request Handler " + id + " on Broker " + brokerId + "], "
   private val latch = new CountDownLatch(1)
 
   def run() {
@@ -92,7 +92,7 @@ class KafkaRequestHandlerPool(val brokerId: Int,
   /* a meter to track the average free capacity of the request handlers */
   private val aggregateIdleMeter = newMeter("RequestHandlerAvgIdlePercent", "percent", TimeUnit.NANOSECONDS)
 
-  this.logIdent = "[Kafka Request Handler on Broker " + brokerId + "], "
+  override val logIdent = "[Kafka Request Handler on Broker " + brokerId + "], "
   val runnables = new Array[KafkaRequestHandler](numThreads)
   for(i <- 0 until numThreads) {
     runnables(i) = new KafkaRequestHandler(i, brokerId, aggregateIdleMeter, numThreads, requestChannel, apis, time)

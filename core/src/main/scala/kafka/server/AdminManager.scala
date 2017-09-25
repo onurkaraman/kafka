@@ -43,7 +43,7 @@ class AdminManager(val config: KafkaConfig,
                    val metadataCache: MetadataCache,
                    val zkUtils: ZkUtils) extends Logging with KafkaMetricsGroup {
 
-  this.logIdent = "[Admin Manager on Broker " + config.brokerId + "]: "
+  override val logIdent = "[Admin Manager on Broker " + config.brokerId + "]: "
 
   private val topicPurgatory = DelayedOperationPurgatory[DelayedOperation]("topic", config.brokerId)
 

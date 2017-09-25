@@ -32,7 +32,7 @@ abstract class AbstractFetcherManager(protected val name: String, clientId: Stri
   // map of (source broker_id, fetcher_id per source broker) => fetcher
   private val fetcherThreadMap = new mutable.HashMap[BrokerIdAndFetcherId, AbstractFetcherThread]
   private val mapLock = new Object
-  this.logIdent = "[" + name + "] "
+  override val logIdent = "[" + name + "] "
 
   newGauge(
     "MaxLag",

@@ -24,7 +24,7 @@ import scala.collection.JavaConverters._
 import kafka.cluster.{Broker, EndPoint}
 import kafka.api._
 import kafka.common.{BrokerEndPointNotAvailableException, TopicAndPartition}
-import kafka.controller.StateChangeLogger
+import kafka.controller.BrokerStateChangeLogger
 import kafka.utils.CoreUtils._
 import kafka.utils.Logging
 import org.apache.kafka.common.internals.Topic
@@ -45,8 +45,8 @@ class MetadataCache(brokerId: Int) extends Logging {
   private val aliveNodes = mutable.Map[Int, collection.Map[ListenerName, Node]]()
   private val partitionMetadataLock = new ReentrantReadWriteLock()
 
-  this.logIdent = s"[MetadataCache brokerId=$brokerId] "
-  private val stateChangeLogger = new StateChangeLogger(brokerId, inControllerContext = false, None)
+  override val logIdent = s"[MetadataCache brokerId=$brokerId] "
+  private val stateChangeLogger = new BrokerStateChangeLogger(brokerId)
 
   // This method is the main hotspot when it comes to the performance of metadata requests,
   // we should be careful about adding additional logic here.

@@ -58,7 +58,7 @@ import scala.collection.{Set, mutable}
  * @param controller
  */
 class TopicDeletionManager(controller: KafkaController, eventManager: ControllerEventManager) extends Logging {
-  this.logIdent = "[Topic Deletion Manager " + controller.config.brokerId + "], "
+  override val logIdent = "[Topic Deletion Manager " + controller.config.brokerId + "], "
   val controllerContext = controller.controllerContext
   val partitionStateMachine = controller.partitionStateMachine
   val replicaStateMachine = controller.replicaStateMachine

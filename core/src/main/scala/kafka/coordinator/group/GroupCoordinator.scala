@@ -53,7 +53,7 @@ class GroupCoordinator(val brokerId: Int,
   type JoinCallback = JoinGroupResult => Unit
   type SyncCallback = (Array[Byte], Errors) => Unit
 
-  this.logIdent = "[GroupCoordinator " + brokerId + "]: "
+  override val logIdent = "[GroupCoordinator " + brokerId + "]: "
 
   private val isActive = new AtomicBoolean(false)
 

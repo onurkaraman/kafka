@@ -64,7 +64,7 @@ class TransactionStateManager(brokerId: Int,
                               config: TransactionConfig,
                               time: Time) extends Logging {
 
-  this.logIdent = "[Transaction State Manager " + brokerId + "]: "
+  override val logIdent = "[Transaction State Manager " + brokerId + "]: "
 
   type SendTxnMarkersCallback = (String, Int, TransactionResult, TransactionMetadata, TxnTransitMetadata) => Unit
 

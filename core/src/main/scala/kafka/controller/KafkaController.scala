@@ -154,10 +154,10 @@ object KafkaController extends Logging {
 
 class KafkaController(val config: KafkaConfig, zkUtils: ZkUtils, time: Time, metrics: Metrics, threadNamePrefix: Option[String] = None) extends Logging with KafkaMetricsGroup {
 
-  this.logIdent = s"[Controller id=${config.brokerId}] "
+  override val logIdent = s"[Controller id=${config.brokerId}] "
 
-  private val stateChangeLogger = new StateChangeLogger(config.brokerId, inControllerContext = true, None)
   val controllerContext = new ControllerContext(zkUtils)
+  private val stateChangeLogger = new ControllerStateChangeLogger(config.brokerId, controllerContext)
   val partitionStateMachine = new PartitionStateMachine(this, stateChangeLogger)
   val replicaStateMachine = new ReplicaStateMachine(this, stateChangeLogger)
 
@@ -873,7 +873,6 @@ class KafkaController(val config: KafkaConfig, zkUtils: ZkUtils, time: Time, met
   }
 
   private def updateLeaderEpochAndSendRequest(topicAndPartition: TopicAndPartition, replicasToReceiveRequest: Seq[Int], newAssignedReplicas: Seq[Int]) {
-    val stateChangeLog = stateChangeLogger.withControllerEpoch(controllerContext.epoch)
     updateLeaderEpoch(topicAndPartition.topic, topicAndPartition.partition) match {
       case Some(updatedLeaderIsrAndControllerEpoch) =>
         try {
@@ -885,11 +884,11 @@ class KafkaController(val config: KafkaConfig, zkUtils: ZkUtils, time: Time, met
           case e: IllegalStateException =>
             handleIllegalState(e)
         }
-        stateChangeLog.trace(s"Sent LeaderAndIsr request $updatedLeaderIsrAndControllerEpoch with new assigned replica " +
+        stateChangeLogger.trace(s"Sent LeaderAndIsr request $updatedLeaderIsrAndControllerEpoch with new assigned replica " +
           s"list ${newAssignedReplicas.mkString(",")} to leader ${updatedLeaderIsrAndControllerEpoch.leaderAndIsr.leader} " +
           s"for partition being reassigned $topicAndPartition")
       case None => // fail the reassignment
-        stateChangeLog.error("Failed to send LeaderAndIsr request with new assigned replica list " +
+        stateChangeLogger.error("Failed to send LeaderAndIsr request with new assigned replica list " +
           s"${newAssignedReplicas.mkString( ",")} to leader for partition being reassigned $topicAndPartition")
     }
   }

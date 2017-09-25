@@ -137,7 +137,7 @@ private[kafka] class ZookeeperConsumerConnector(val config: ConsumerConfig,
     }
     config.groupId + "_" + consumerUuid
   }
-  this.logIdent = "[" + consumerIdString + "], "
+  override val logIdent = "[" + consumerIdString + "], "
 
   connectZk()
   createFetcher()

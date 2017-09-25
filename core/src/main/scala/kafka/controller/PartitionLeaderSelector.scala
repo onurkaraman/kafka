@@ -49,7 +49,7 @@ trait PartitionLeaderSelector {
 class OfflinePartitionLeaderSelector(controllerContext: ControllerContext, config: KafkaConfig)
   extends PartitionLeaderSelector with Logging {
 
-  logIdent = "[OfflinePartitionLeaderSelector]: "
+  override val logIdent = "[OfflinePartitionLeaderSelector]: "
 
   def selectLeader(topicAndPartition: TopicAndPartition, currentLeaderAndIsr: LeaderAndIsr): (LeaderAndIsr, Seq[Int]) = {
     controllerContext.partitionReplicaAssignment.get(topicAndPartition) match {
@@ -102,7 +102,7 @@ class OfflinePartitionLeaderSelector(controllerContext: ControllerContext, confi
  */
 class ReassignedPartitionLeaderSelector(controllerContext: ControllerContext) extends PartitionLeaderSelector with Logging {
 
-  logIdent = "[ReassignedPartitionLeaderSelector]: "
+  override val logIdent = "[ReassignedPartitionLeaderSelector]: "
 
   /**
    * The reassigned replicas are already in the ISR when selectLeader is called.
@@ -135,7 +135,7 @@ class ReassignedPartitionLeaderSelector(controllerContext: ControllerContext) ex
  */
 class PreferredReplicaPartitionLeaderSelector(controllerContext: ControllerContext) extends PartitionLeaderSelector with Logging {
 
-  logIdent = "[PreferredReplicaPartitionLeaderSelector]: "
+  override val logIdent = "[PreferredReplicaPartitionLeaderSelector]: "
 
   def selectLeader(topicAndPartition: TopicAndPartition,
                    currentLeaderAndIsr: LeaderAndIsr): (LeaderAndIsr, Seq[Int]) = {
@@ -168,7 +168,7 @@ class PreferredReplicaPartitionLeaderSelector(controllerContext: ControllerConte
  */
 class ControlledShutdownLeaderSelector(controllerContext: ControllerContext) extends PartitionLeaderSelector with Logging {
 
-  logIdent = "[ControlledShutdownLeaderSelector]: "
+  override val logIdent = "[ControlledShutdownLeaderSelector]: "
 
   def selectLeader(topicAndPartition: TopicAndPartition,
                    currentLeaderAndIsr: LeaderAndIsr): (LeaderAndIsr, Seq[Int]) = {
@@ -195,7 +195,7 @@ class ControlledShutdownLeaderSelector(controllerContext: ControllerContext) ext
  */
 class NoOpLeaderSelector(controllerContext: ControllerContext) extends PartitionLeaderSelector with Logging {
 
-  logIdent = "[NoOpLeaderSelector]: "
+  override val logIdent = "[NoOpLeaderSelector]: "
 
   def selectLeader(topicAndPartition: TopicAndPartition,
                    currentLeaderAndIsr: LeaderAndIsr): (LeaderAndIsr, Seq[Int]) = {

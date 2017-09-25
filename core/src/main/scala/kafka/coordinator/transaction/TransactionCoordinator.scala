@@ -88,7 +88,7 @@ class TransactionCoordinator(brokerId: Int,
                              txnMarkerChannelManager: TransactionMarkerChannelManager,
                              time: Time,
                              logContext: LogContext) extends Logging {
-  this.logIdent = logContext.logPrefix
+  override val logIdent = logContext.logPrefix
 
   import TransactionCoordinator._
 

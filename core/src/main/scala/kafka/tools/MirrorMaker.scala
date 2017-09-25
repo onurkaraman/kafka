@@ -411,7 +411,7 @@ object MirrorMaker extends Logging with KafkaMetricsGroup {
     private val shutdownLatch: CountDownLatch = new CountDownLatch(1)
     private var lastOffsetCommitMs = System.currentTimeMillis()
     @volatile private var shuttingDown: Boolean = false
-    this.logIdent = "[%s] ".format(threadName)
+    override val logIdent = "[%s] ".format(threadName)
 
     setName(threadName)
 

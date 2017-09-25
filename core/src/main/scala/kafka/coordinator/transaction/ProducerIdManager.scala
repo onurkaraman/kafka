@@ -67,7 +67,7 @@ case class ProducerIdBlock(brokerId: Int, blockStartId: Long, blockEndId: Long) 
 
 class ProducerIdManager(val brokerId: Int, val zkUtils: ZkUtils) extends Logging {
 
-  this.logIdent = "[ProducerId Manager " + brokerId + "]: "
+  override val logIdent = "[ProducerId Manager " + brokerId + "]: "
 
   private var currentProducerIdBlock: ProducerIdBlock = null
   private var nextProducerId: Long = -1L
